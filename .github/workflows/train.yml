@@ -1,0 +1,50 @@
+name: Feature Engineering + Retrain + Deploy
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # daily at 02:00 UTC (08:00 Almaty)
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Feature engineering  (raw → data.csv)
+        env:
+          STAGING_PATH:   data/raw/traffic_data.csv
+          PROCESSED_PATH: data.csv
+        run: python scripts/feature_engineering.py
+
+      - name: Train models
+        env:
+          DATA_PATH: data.csv
+          MODEL_DIR: models
+          PLOT_DIR:  static/plots
+        run: python train.py
+
+      - name: Commit models + data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.csv models/ static/plots/
+          git diff --staged --quiet || \
+            git commit -m "models: retrain $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          git push
+
+      - name: Trigger Render deploy
+        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        run: curl -s "${{ secrets.RENDER_DEPLOY_HOOK }}"

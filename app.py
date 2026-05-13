@@ -4,6 +4,7 @@ Almaty Traffic Prediction — FastAPI Backend (Self-Contained)
 import json, os, pickle
 import numpy as np
 import pandas as pd
+import shap
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
@@ -42,6 +43,213 @@ for col in FEATURES:
     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 print(f"Loaded: {len(df)} rows, {df['segment_id'].nunique()} segments")
+
+# ── SHAP setup ──
+FEATURE_GROUPS = {
+    'temporal': ['hour', 'hour_sin', 'hour_cos', 'is_rush_hour', 'is_night', 'day_of_week', 'is_weekend'],
+    'weather':  ['weather_temp_c', 'weather_humidity', 'weather_wind_ms', 'weather_precip_1h',
+                 'is_low_visibility', 'weather_severity', 'rain_x_rush'],
+    'spatial':  ['lat', 'lon', 'is_major_street', 'dist_from_center', 'street_encoded'],
+    'history':  ['lag_1', 'lag_2', 'rolling_mean_6', 'rolling_std_6', 'diff_1'],
+}
+
+FEAT_RU = {
+    'hour': 'час суток', 'hour_sin': 'цикличность часа', 'hour_cos': 'цикличность часа',
+    'is_rush_hour': 'час пик', 'is_night': 'ночное время', 'day_of_week': 'день недели',
+    'is_weekend': 'выходной', 'weather_temp_c': 'температура', 'weather_humidity': 'влажность',
+    'weather_wind_ms': 'ветер', 'weather_precip_1h': 'осадки', 'is_low_visibility': 'плохая видимость',
+    'weather_severity': 'погодные условия', 'rain_x_rush': 'дождь в час пик',
+    'lat': 'широта', 'lon': 'долгота', 'is_major_street': 'тип дороги',
+    'dist_from_center': 'удалённость от центра', 'street_encoded': 'улица',
+    'lag_1': 'трафик 30 мин назад', 'lag_2': 'трафик 1 час назад',
+    'rolling_mean_6': 'среднее за 3 часа', 'rolling_std_6': 'волатильность трафика',
+    'diff_1': 'изменение трафика',
+}
+
+GROUP_RU = {
+    'temporal': 'Временные паттерны',
+    'weather':  'Погодные условия',
+    'spatial':  'Пространственные факторы',
+    'history':  'Исторический трафик',
+}
+
+_shap_cache = None
+
+def _compute_shap_recs():
+    global _shap_cache
+    if _shap_cache is not None:
+        return _shap_cache
+
+    print("Computing SHAP recommendations...")
+    explainer = shap.TreeExplainer(xgb_reg)
+
+    # Only analyse segments above the 60th percentile by mean_score
+    threshold_seg = float(segments['mean_score'].quantile(0.60))
+    candidates = segments[segments['mean_score'] >= threshold_seg]
+
+    df_rush = df[df['is_rush_hour'] == 1].copy()
+
+    feat_indices = {f: i for i, f in enumerate(FEATURES)}
+    group_indices = {
+        g: [feat_indices[f] for f in feats if f in feat_indices]
+        for g, feats in FEATURE_GROUPS.items()
+    }
+
+    recs = []
+    seen_streets = {}
+
+    for _, seg in candidates.iterrows():
+        seg_id  = seg['segment_id']
+        mean_s  = float(seg['mean_score'])
+        max_s   = float(seg['max_score'])
+        street  = str(seg.get('street', ''))
+        lat     = float(seg['lat'])
+        lon     = float(seg['lon'])
+
+        # prefer rush-hour rows, fall back to all
+        sample_df = df_rush[df_rush['segment_id'] == seg_id]
+        if len(sample_df) < 5:
+            sample_df = df[df['segment_id'] == seg_id]
+        if len(sample_df) == 0:
+            continue
+
+        X = sample_df[FEATURES].fillna(0).head(40).values
+        shap_vals = explainer.shap_values(X)          # (n_samples, n_features)
+        mean_abs  = np.abs(shap_vals).mean(axis=0)    # (n_features,)
+        total     = mean_abs.sum() or 1.0
+
+        # Full breakdown (shown in UI — honest: lag features will dominate)
+        group_pct = {
+            g: round(float(mean_abs[idxs].sum() / total * 100), 1)
+            for g, idxs in group_indices.items()
+        }
+
+        # Structural driver = dominant among actionable groups (excluding history).
+        # The model uses lag features for accuracy, but infrastructure decisions
+        # must come from the structural signal in temporal/spatial/weather.
+        actionable = {g: float(mean_abs[idxs].sum())
+                      for g, idxs in group_indices.items() if g != 'history'}
+        actionable_total = sum(actionable.values()) or 1.0
+        actionable_pct = {g: round(v / actionable_total * 100, 1)
+                          for g, v in actionable.items()}
+
+        dominant = max(actionable_pct, key=actionable_pct.get)
+        dom_pct  = actionable_pct[dominant]
+
+        # top individual feature (with Russian label)
+        top_idx  = int(np.argmax(mean_abs))
+        top_feat = FEATURES[top_idx]
+        top_ru   = FEAT_RU.get(top_feat, top_feat)
+        top_pct  = round(float(mean_abs[top_idx] / total * 100), 1)
+
+        # peak rush hours from raw data
+        df_h = df[df['segment_id'] == seg_id].copy()
+        df_h['hour_alm'] = (df_h['timestamp'].dt.hour + 5) % 24
+        hourly = df_h.groupby('hour_alm')['traffic_score'].mean()
+        rush_peaks = sorted([h for h in hourly[hourly > THRESHOLD].index
+                             if 7 <= h <= 9 or 17 <= h <= 20])
+        peak_str = ', '.join(f'{h}:00' for h in rush_peaks) if rush_peaks else '7:00–9:00, 17:00–19:00'
+
+        # How much structural signal each actionable group contributes (renormalized)
+        struct_temporal = actionable_pct.get('temporal', 0)
+        struct_spatial  = actionable_pct.get('spatial', 0)
+        struct_weather  = actionable_pct.get('weather', 0)
+
+        # ── Classify into 4 types based on structural SHAP ──
+        # weather: meaningful even if not #1 (≥20% is significant)
+        # complex: temporal and spatial are close (gap ≤12%) and weather is minor
+        # traffic_light: temporal clearly leads (gap >12%)
+        # lane_expansion: spatial clearly leads (gap >12%)
+        gap = struct_temporal - struct_spatial   # positive → temporal leads
+
+        if struct_weather >= 20:
+            rec_type = 'weather'
+        elif abs(gap) <= 12:
+            rec_type = 'complex'
+        elif gap > 12:
+            rec_type = 'traffic_light'
+        else:
+            rec_type = 'lane_expansion'
+
+        key = (rec_type, street)
+        if key in seen_streets:
+            continue
+        seen_streets[key] = True
+
+        base = {
+            'type': rec_type,
+            'driver': dominant,
+            'street': street, 'lat': round(lat, 4), 'lon': round(lon, 4),
+            'shap_breakdown': group_pct,
+            'actionable_pct': actionable_pct,
+            'top_feature_ru': top_ru,
+            'top_feature_pct': top_pct,
+            'mean_score': round(mean_s, 2), 'max_score': round(max_s, 2),
+        }
+
+        if rec_type == 'traffic_light':
+            extra = min(30, max(8, int(gap * 0.6)))
+            recs.append({**base,
+                'priority': 'High' if max_s >= 4.0 or struct_temporal >= 45 else 'Medium',
+                'title': f'Оптимизация светофора — {street}',
+                'description': (
+                    f'Структурный SHAP: временной фактор явно доминирует — {struct_temporal}% '
+                    f'против пространства {struct_spatial}% и погоды {struct_weather}%. '
+                    f'Топ-фича: «{top_ru}». '
+                    f'Рекомендуется увеличить зелёную фазу на {extra} сек в часы пик ({peak_str}).'
+                ),
+                'impact': f'Устранение временного bottleneck ({struct_temporal:.0f}% структурной причины)',
+            })
+
+        elif rec_type == 'lane_expansion':
+            lanes = 2 if mean_s >= 2.5 else 1
+            recs.append({**base,
+                'priority': 'High' if mean_s >= 2.5 or struct_spatial >= 45 else 'Medium',
+                'title': f'Расширение дороги — {street}',
+                'description': (
+                    f'Структурный SHAP: пространственный фактор явно доминирует — {struct_spatial}% '
+                    f'против времени {struct_temporal}% и погоды {struct_weather}%. '
+                    f'Топ-фича: «{top_ru}». '
+                    f'Перегрузка геометрическая — рекомендуется добавить {lanes} полос{"ы" if lanes>1 else "у"}.'
+                ),
+                'impact': f'Устранение геометрического bottleneck ({struct_spatial:.0f}% структурной причины)',
+            })
+
+        elif rec_type == 'complex':
+            extra = min(20, max(8, int(abs(gap) * 0.5 + 8)))
+            lanes = 1
+            recs.append({**base,
+                'priority': 'High' if max_s >= 4.0 else 'Medium',
+                'title': f'Комплексное решение — {street}',
+                'description': (
+                    f'Структурный SHAP: временной ({struct_temporal}%) и пространственный ({struct_spatial}%) '
+                    f'факторы примерно равны — одной меры недостаточно. '
+                    f'Топ-фича: «{top_ru}». '
+                    f'Рекомендуется: (1) светофор +{extra} сек в пики ({peak_str}), '
+                    f'(2) добавить {lanes} полосу движения.'
+                ),
+                'impact': f'Комбинация мер устраняет оба источника перегрузки',
+            })
+
+        else:  # weather
+            recs.append({**base,
+                'priority': 'Low',
+                'title': f'Погодный фактор — {street}',
+                'description': (
+                    f'Структурный SHAP: погодный фактор значим — {struct_weather}% '
+                    f'(время: {struct_temporal}%, пространство: {struct_spatial}%). '
+                    f'Топ-фича: «{top_ru}». '
+                    'Инфраструктурные изменения малоэффективны. '
+                    'Рекомендуется: переменные ограничения скорости при осадках.'
+                ),
+                'impact': 'Динамические дорожные знаки снизят аварийность при плохой погоде',
+            })
+
+    order = {'High': 0, 'Medium': 1, 'Low': 2}
+    recs.sort(key=lambda x: (order.get(x['priority'], 2), -x['max_score']))
+    _shap_cache = recs
+    print(f"SHAP recommendations computed: {len(recs)} total")
+    return recs
 
 # ── HTML (embedded) ──
 HTML_CONTENT = open(BASE_DIR / "templates" / "index.html", encoding="utf-8").read()
@@ -133,6 +341,11 @@ async def api_predict(lat:float=Query(43.265),lon:float=Query(76.945),
         "rain_effect":f"+{round((rain_factor-1)*100)}%" if precip>0 else "none",
         "nearest_street":str(nearest.get('street','')),"observations":len(hour_data),
         "input":{"lat":lat,"lon":lon,"hour":hour,"day":day,"temp":temp,"precip":precip}}
+
+@app.get("/api/recommendations")
+async def api_recommendations():
+    return _compute_shap_recs()
+
 
 if __name__ == "__main__":
     import uvicorn

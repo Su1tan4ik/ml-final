@@ -105,6 +105,38 @@ input,select{width:100%;padding:8px 12px;background:var(--bg);border:1px solid v
 
 /* Loading */
 .loading{text-align:center;padding:40px;color:var(--muted)}
+
+/* Recommendations */
+.rec-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:12px}
+.rec-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;position:relative;transition:transform 0.15s}
+.rec-card:hover{transform:translateY(-2px)}
+.rec-card.tl{border-left:4px solid var(--yellow)}
+.rec-card.le{border-left:4px solid var(--purple)}
+.rec-card.cx{border-left:4px solid var(--orange)}
+.rec-card.wx{border-left:4px solid var(--accent)}
+.rec-card .rec-type{font-size:1.6rem;margin-bottom:6px}
+.rec-card .rec-title{font-size:0.95rem;font-weight:700;margin-bottom:6px;color:var(--text)}
+.rec-card .rec-desc{font-size:0.82rem;color:var(--muted);line-height:1.5;margin-bottom:10px}
+.rec-card .rec-impact{font-size:0.8rem;color:var(--green);font-weight:600}
+.rec-card .rec-score{font-size:0.75rem;color:var(--muted);margin-top:6px}
+.priority-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.7rem;font-weight:700;margin-bottom:8px}
+.priority-badge.High{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
+.priority-badge.Medium{background:rgba(234,179,8,0.15);color:var(--yellow);border:1px solid rgba(234,179,8,0.3)}
+.rec-summary{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.rec-stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 20px;text-align:center;flex:1;min-width:140px}
+.rec-stat .rv{font-size:1.6rem;font-weight:700}
+.rec-stat .rl{font-size:0.75rem;color:var(--muted);margin-top:2px}
+.rec-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.filter-btn{background:var(--card);color:var(--muted);border:1px solid var(--border);padding:6px 16px;border-radius:8px;cursor:pointer;font-size:0.8rem;transition:all 0.2s}
+.filter-btn.active{background:var(--accent);color:white;border-color:var(--accent)}
+/* SHAP breakdown bar */
+.shap-bar{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.shap-bar .shap-label{font-size:0.7rem;color:var(--muted);margin-bottom:4px}
+.shap-row{display:flex;align-items:center;gap:6px;margin:3px 0}
+.shap-row .sname{font-size:0.7rem;color:var(--muted);width:130px;flex-shrink:0}
+.shap-row .strack{flex:1;height:10px;background:var(--border);border-radius:3px;overflow:hidden}
+.shap-row .sfill{height:100%;border-radius:3px;transition:width 0.6s}
+.shap-row .spct{font-size:0.7rem;color:var(--muted);width:36px;text-align:right}
 </style>
 </head>
 <body>
@@ -133,6 +165,7 @@ input,select{width:100%;padding:8px 12px;background:var(--bg);border:1px solid v
     <button onclick="showPanel('models')">🤖 Models</button>
     <button onclick="showPanel('analysis')">📈 Analysis</button>
     <button onclick="showPanel('architecture')">🏗 Architecture</button>
+    <button onclick="showPanel('recommendations')">💡 Recommendations</button>
   </nav>
 
   <!-- DASHBOARD -->
@@ -296,6 +329,31 @@ input,select{width:100%;padding:8px 12px;background:var(--bg);border:1px solid v
     </div>
   </div>
 
+  <!-- RECOMMENDATIONS -->
+  <div id="recommendations" class="panel">
+    <div class="card" style="margin-bottom:0">
+      <h3>💡 Infrastructure Recommendations — на основе ML-анализа трафика</h3>
+      <p style="color:var(--muted);font-size:0.85rem;margin-top:4px">
+        Система анализирует 220 дорожных сегментов и генерирует конкретные рекомендации
+        по оптимизации светофоров и расширению дорог там, где данные показывают хроническую перегрузку.
+      </p>
+    </div>
+    <div class="rec-summary" id="rec-summary" style="margin-top:12px">
+      <div class="loading">Загрузка рекомендаций...</div>
+    </div>
+    <div class="rec-filters">
+      <button class="filter-btn active" onclick="filterRecs('all',this)">Все</button>
+      <button class="filter-btn" onclick="filterRecs('traffic_light',this)">🚦 Светофоры</button>
+      <button class="filter-btn" onclick="filterRecs('lane_expansion',this)">🛣 Расширение</button>
+      <button class="filter-btn" onclick="filterRecs('complex',this)">⚡ Комплексные</button>
+      <button class="filter-btn" onclick="filterRecs('weather',this)">🌧 Погодные</button>
+      <button class="filter-btn" onclick="filterRecs('High',this)">🔴 Высокий приоритет</button>
+    </div>
+    <div class="rec-cards" id="rec-cards">
+      <div class="loading">Загрузка...</div>
+    </div>
+  </div>
+
   <!-- ARCHITECTURE -->
   <div id="architecture" class="panel">
     <div class="card">
@@ -395,6 +453,7 @@ function showPanel(id) {
   document.getElementById(panelId).classList.add('active');
   event.target.classList.add('active');
   if (id === 'map' && !map) initMap();
+  if (id === 'recommendations') loadRecommendations();
 }
 
 // ── Load Dashboard ──
@@ -670,6 +729,117 @@ async function predict() {
       `Zone avg: ${data.zone_stats.mean} | Zone max: ${data.zone_stats.max}<br>` +
       (data.rain_effect !== 'none' ? `🌧 Rain effect: ${data.rain_effect}` : '☀ No rain effect');
   } catch(e) { console.error('Predict error:', e); }
+}
+
+// ── Recommendations ──
+let allRecs = [];
+let recsLoaded = false;
+
+const REC_ICONS = {
+  traffic_light: '🚦', lane_expansion: '🛣', complex: '⚡', weather: '🌧'
+};
+const REC_CLASS = {
+  traffic_light: 'tl', lane_expansion: 'le', complex: 'cx', weather: 'wx'
+};
+const SHAP_COLORS = {
+  temporal: '#eab308', spatial: '#a855f7', history: '#f97316', weather: '#3b82f6'
+};
+const SHAP_LABELS = {
+  temporal: 'Временные паттерны', spatial: 'Пространство',
+  history: 'Исторический трафик', weather: 'Погода'
+};
+
+async function loadRecommendations() {
+  if (recsLoaded) return;
+  recsLoaded = true;
+  document.getElementById('rec-cards').innerHTML = '<div class="loading">Запуск SHAP-анализа... (~10 сек)</div>';
+  try {
+    allRecs = await fetch(`${API}/api/recommendations`).then(r => r.json());
+    renderRecSummary(allRecs);
+    renderRecCards(allRecs);
+  } catch(e) {
+    document.getElementById('rec-cards').innerHTML = '<div class="loading">Ошибка загрузки</div>';
+  }
+}
+
+function renderRecSummary(recs) {
+  const tl   = recs.filter(r => r.type === 'traffic_light').length;
+  const le   = recs.filter(r => r.type === 'lane_expansion').length;
+  const cx   = recs.filter(r => r.type === 'complex').length;
+  const high = recs.filter(r => r.priority === 'High').length;
+  document.getElementById('rec-summary').innerHTML = `
+    <div class="rec-stat"><div class="rv" style="color:var(--yellow)">${tl}</div><div class="rl">🚦 Светофоры</div></div>
+    <div class="rec-stat"><div class="rv" style="color:var(--purple)">${le}</div><div class="rl">🛣 Расширение</div></div>
+    <div class="rec-stat"><div class="rv" style="color:var(--orange)">${cx}</div><div class="rl">⚡ Комплексно</div></div>
+    <div class="rec-stat"><div class="rv" style="color:var(--red)">${high}</div><div class="rl">🔴 Высокий приоритет</div></div>
+    <div class="rec-stat"><div class="rv" style="color:var(--accent)">${recs.length}</div><div class="rl">Всего (SHAP)</div></div>
+  `;
+}
+
+function shapBreakdownHtml(breakdown, actionable) {
+  if (!breakdown) return '';
+
+  // Full SHAP (shows history domination — honest)
+  const full = Object.entries(breakdown).sort((a,b) => b[1]-a[1]).map(([g, pct]) =>
+    `<div class="shap-row">
+      <span class="sname">${SHAP_LABELS[g] || g}</span>
+      <div class="strack"><div class="sfill" style="width:${pct}%;background:${SHAP_COLORS[g]||'#888'}"></div></div>
+      <span class="spct">${pct}%</span>
+    </div>`
+  ).join('');
+
+  // Structural only (without history — actionable)
+  let structural = '';
+  if (actionable) {
+    const STRUCT_LABELS = {temporal:'Временные', spatial:'Пространство', weather:'Погода'};
+    structural = Object.entries(actionable).sort((a,b)=>b[1]-a[1]).map(([g,pct]) =>
+      `<div class="shap-row">
+        <span class="sname">${STRUCT_LABELS[g]||g}</span>
+        <div class="strack"><div class="sfill" style="width:${pct}%;background:${SHAP_COLORS[g]||'#888'}"></div></div>
+        <span class="spct">${pct}%</span>
+      </div>`
+    ).join('');
+    structural = `<div style="margin-top:6px"><div class="shap-label">Структурные факторы (без lag):</div>${structural}</div>`;
+  }
+
+  return `<div class="shap-bar">
+    <div class="shap-label">Полный SHAP breakdown:</div>${full}${structural}
+  </div>`;
+}
+
+function renderRecCards(recs) {
+  if (!recs.length) {
+    document.getElementById('rec-cards').innerHTML = '<div class="loading">Нет рекомендаций по фильтру</div>';
+    return;
+  }
+  const html = recs.map(r => {
+    const prioLabel = r.priority === 'High' ? '🔴 Высокий' : (r.priority === 'Medium' ? '🟡 Средний' : '🔵 Низкий');
+    return `
+      <div class="rec-card ${REC_CLASS[r.type] || 'tl'}">
+        <div class="rec-type">${REC_ICONS[r.type] || '📌'}</div>
+        <span class="priority-badge ${r.priority}">${prioLabel} приоритет</span>
+        <div class="rec-title">${r.title}</div>
+        <div class="rec-desc">${r.description}</div>
+        <div class="rec-impact">✅ ${r.impact}</div>
+        <div class="rec-score">
+          Ср. нагрузка: <b>${r.mean_score}</b> &nbsp;|&nbsp; Макс: <b>${r.max_score}</b>
+          &nbsp;|&nbsp; 📍 ${r.lat}, ${r.lon}
+        </div>
+        ${shapBreakdownHtml(r.shap_breakdown, r.actionable_pct)}
+      </div>`;
+  }).join('');
+  document.getElementById('rec-cards').innerHTML = html;
+}
+
+let currentFilter = 'all';
+function filterRecs(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (filter === 'all') return renderRecCards(allRecs);
+  if (filter === 'High' || filter === 'Medium' || filter === 'Low')
+    return renderRecCards(allRecs.filter(r => r.priority === filter));
+  renderRecCards(allRecs.filter(r => r.type === filter));
 }
 
 // ── Init ──
