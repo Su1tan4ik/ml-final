@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Almaty Traffic Prediction System v6</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e4e4e7;--muted:#71717a;--accent:#3b82f6;--green:#22c55e;--yellow:#eab308;--orange:#f97316;--red:#ef4444;--purple:#a855f7}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+.container{max-width:1400px;margin:0 auto;padding:16px}
+
+/* Header */
+header{background:linear-gradient(135deg,#1e3a5f,#0f1117);border-bottom:1px solid var(--border);padding:20px 0}
+header .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo h1{font-size:1.5rem;font-weight:700}
+.logo span{color:var(--accent);font-size:1.8rem}
+.badge{background:var(--accent);color:white;padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:600}
+.subtitle{color:var(--muted);font-size:0.85rem}
+
+/* Nav */
+nav{display:flex;gap:4px;margin:16px 0;flex-wrap:wrap}
+nav button{background:var(--card);color:var(--muted);border:1px solid var(--border);padding:8px 20px;border-radius:8px;cursor:pointer;font-size:0.85rem;transition:all 0.2s}
+nav button.active,nav button:hover{background:var(--accent);color:white;border-color:var(--accent)}
+
+/* Panels */
+.panel{display:none}.panel.active{display:block}
+
+/* Stats bar */
+.stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center}
+.stat .value{font-size:1.8rem;font-weight:700;color:var(--accent)}
+.stat .label{font-size:0.75rem;color:var(--muted);margin-top:4px}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin:12px 0}
+.card h3{font-size:1rem;margin-bottom:12px;color:var(--text);display:flex;align-items:center;gap:8px}
+
+/* Grid */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:900px){.grid-2,.grid-3{grid-template-columns:1fr}}
+
+/* Map */
+#map{height:500px;border-radius:12px;border:1px solid var(--border)}
+
+/* Table */
+table{width:100%;border-collapse:collapse;font-size:0.85rem}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+th{color:var(--muted);font-weight:600;font-size:0.75rem;text-transform:uppercase}
+tr:hover{background:rgba(59,130,246,0.05)}
+
+/* Form */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+label{font-size:0.8rem;color:var(--muted);display:block;margin-bottom:4px}
+input,select{width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem}
+.btn{background:var(--accent);color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600;transition:background 0.2s}
+.btn:hover{background:#2563eb}
+
+/* Prediction result */
+.pred-result{display:none;margin-top:16px;padding:20px;border-radius:12px;text-align:center}
+.pred-result .score{font-size:3rem;font-weight:700}
+.pred-result .level{font-size:1.2rem;margin-top:4px}
+.pred-result .details{margin-top:12px;color:var(--muted);font-size:0.85rem}
+
+/* Score colors */
+.score-low{color:var(--green)}.score-medium{color:var(--yellow)}
+.score-high{color:var(--orange)}.score-critical{color:var(--red)}
+.bg-low{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3)}
+.bg-medium{background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3)}
+.bg-high{background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3)}
+
+/* Model metrics */
+.metric-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.metric-row:last-child{border:none}
+.metric-name{font-weight:600}.metric-val{color:var(--accent);font-weight:700}
+
+/* Chart containers */
+.chart-container{position:relative;height:300px}
+
+/* Plot images */
+.plot-img{width:100%;border-radius:8px;border:1px solid var(--border)}
+
+/* Feature bar */
+.feat-bar{display:flex;align-items:center;gap:8px;margin:6px 0}
+.feat-bar .name{width:140px;font-size:0.8rem;text-align:right;color:var(--muted)}
+.feat-bar .bar{height:20px;background:var(--accent);border-radius:4px;transition:width 0.5s}
+.feat-bar .val{font-size:0.75rem;color:var(--muted);width:50px}
+
+/* Architecture */
+.arch-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;margin:16px 0}
+.arch-box{background:var(--bg);border:2px solid var(--accent);border-radius:8px;padding:12px 16px;text-align:center;min-width:120px}
+.arch-box.data{border-color:var(--green)}.arch-box.ml{border-color:var(--purple)}
+.arch-box.api{border-color:var(--orange)}.arch-box.ui{border-color:var(--yellow)}
+.arch-box h4{font-size:0.8rem;margin-bottom:4px}
+.arch-box p{font-size:0.7rem;color:var(--muted)}
+.arch-arrow{color:var(--muted);font-size:1.2rem}
+
+/* Loading */
+.loading{text-align:center;padding:40px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+<div class="container">
+  <div class="logo">
+    <span>🚦</span>
+    <div>
+      <h1>Almaty Traffic Prediction</h1>
+      <div class="subtitle">AI-Powered Congestion Prediction & Infrastructure Optimization</div>
+    </div>
+  </div>
+  <div>
+    <span class="badge">ML System</span>
+    <span class="badge" style="background:var(--green)">v6 GRID</span>
+  </div>
+</div>
+</header>
+
+<div class="container">
+  <nav>
+    <button class="active" onclick="showPanel('dashboard')">📊 Dashboard</button>
+    <button onclick="showPanel('map')">🗺 Traffic Map</button>
+    <button onclick="showPanel('predict')">🔮 Predict</button>
+    <button onclick="showPanel('models')">🤖 Models</button>
+    <button onclick="showPanel('analysis')">📈 Analysis</button>
+    <button onclick="showPanel('architecture')">🏗 Architecture</button>
+  </nav>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="panel active">
+    <div class="stats-bar" id="stats-bar"><div class="loading">Loading...</div></div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>📈 Traffic by Hour (Almaty Time)</h3>
+        <div class="chart-container"><canvas id="hourlyChart"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>📅 Traffic by Day of Week</h3>
+        <div class="chart-container"><canvas id="dailyChart"></canvas></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🔥 Top Congestion Hotspots (by city-wide impact)</h3>
+      <table id="hotspots-table">
+        <thead><tr><th>#</th><th>Street / Zone</th><th>Zones</th><th>Mean Score</th><th>Max Score</th><th>Level</th></tr></thead>
+        <tbody><tr><td colspan="5" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div id="map-panel" class="panel">
+    <div class="card">
+      <h3>🗺 Almaty Traffic Grid (220 zones, ~1×1 km)</h3>
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+        <label style="margin:0;color:var(--text)">Hour (Almaty):</label>
+        <input type="range" id="hour-slider" min="0" max="23" value="18" style="flex:1;min-width:200px;accent-color:var(--accent)">
+        <span id="hour-label" style="font-size:1.2rem;font-weight:700;color:var(--accent);min-width:60px">18:00</span>
+        <button class="btn" onclick="playHours()" id="play-btn" style="padding:6px 16px;font-size:0.8rem">▶ Play 24h</button>
+      </div>
+      <div id="map"></div>
+      <div style="margin-top:8px;display:flex;gap:16px;font-size:0.75rem;color:var(--muted);flex-wrap:wrap">
+        <span>🟢 Free (≤1.6)</span>
+        <span>🟡 Slow (1.6-2.0)</span>
+        <span>🟠 Moderate (2.0-3.0)</span>
+        <span>🔴 Heavy (3.0+)</span>
+        <span style="margin-left:auto" id="map-stats"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PREDICT -->
+  <div id="predict" class="panel">
+    <div class="card">
+      <h3>🔮 Traffic Congestion Prediction</h3>
+      <p style="color:var(--muted);margin-bottom:16px;font-size:0.85rem">
+        Select a location, time, and weather conditions to predict traffic congestion.
+      </p>
+      <div class="form-grid">
+        <div><label>Latitude</label><input type="number" id="p-lat" value="43.238" step="0.001"></div>
+        <div><label>Longitude</label><input type="number" id="p-lon" value="76.946" step="0.001"></div>
+        <div><label>Hour (Almaty)</label>
+          <select id="p-hour">
+            <option value="7">07:00 (Morning Rush)</option>
+            <option value="8">08:00 (Morning Rush)</option>
+            <option value="9">09:00</option>
+            <option value="12">12:00 (Noon)</option>
+            <option value="15">15:00</option>
+            <option value="17">17:00 (Evening Rush)</option>
+            <option value="18" selected>18:00 (Evening Rush)</option>
+            <option value="19">19:00 (Evening Rush)</option>
+            <option value="22">22:00 (Night)</option>
+            <option value="3">03:00 (Night)</option>
+          </select>
+        </div>
+        <div><label>Day of Week</label>
+          <select id="p-day">
+            <option value="0">Monday</option><option value="1">Tuesday</option>
+            <option value="2">Wednesday</option><option value="3">Thursday</option>
+            <option value="4" selected>Friday</option><option value="5">Saturday</option>
+            <option value="6">Sunday</option>
+          </select>
+        </div>
+        <div><label>Temperature (°C)</label><input type="number" id="p-temp" value="15"></div>
+        <div><label>Precipitation (mm)</label><input type="number" id="p-precip" value="0" step="0.1"></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn" onclick="predict()">🔮 Predict Congestion</button></div>
+      <div class="pred-result" id="pred-result">
+        <div class="score" id="pred-score">—</div>
+        <div class="level" id="pred-level">—</div>
+        <div class="details" id="pred-details">—</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>📍 Quick Location Presets</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="font-size:0.8rem" onclick="setLoc(43.233,76.866,'Al-Farabi/Auezova')">Аль-Фараби / Ауэзова</button>
+        <button class="btn" style="font-size:0.8rem" onclick="setLoc(43.225,76.899,'Al-Farabi/Rozybakieva')">Аль-Фараби / Розыбакиева</button>
+        <button class="btn" style="font-size:0.8rem" onclick="setLoc(43.193,76.921,'Penzenskaya')">Пензенская (max загрузка)</button>
+        <button class="btn" style="font-size:0.8rem" onclick="setLoc(43.329,76.942,'Severnoe Koltso')">Северное Кольцо</button>
+        <button class="btn" style="font-size:0.8rem" onclick="setLoc(43.249,76.910,'Abay')">Абая / Алтынсарина</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODELS -->
+  <div id="models" class="panel">
+    <div class="grid-2">
+      <div class="card">
+        <h3>📊 Regression Models (Traffic Score Prediction)</h3>
+        <div id="reg-metrics"><div class="loading">Loading...</div></div>
+      </div>
+      <div class="card">
+        <h3>🎯 Classification (Congestion Detection)</h3>
+        <div id="cls-metrics"><div class="loading">Loading...</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🔍 Feature Importance (What Drives Congestion)</h3>
+      <div id="feat-bars"><div class="loading">Loading...</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>🗺 Traffic Clusters</h3>
+        <img src="/static/plots/10_clusters.png" class="plot-img" alt="Clusters">
+      </div>
+      <div class="card">
+        <h3>🔬 SHAP Analysis</h3>
+        <img src="/static/plots/09_shap.png" class="plot-img" alt="SHAP">
+      </div>
+    </div>
+    <div class="card">
+      <h3>💡 Counterfactual Simulations — Infrastructure Impact</h3>
+      <img src="/static/plots/11_counterfactual.png" class="plot-img" alt="Counterfactual">
+    </div>
+  </div>
+
+  <!-- ANALYSIS -->
+  <div id="analysis" class="panel">
+    <div class="card">
+      <h3>📊 Data Distribution</h3>
+      <img src="/static/plots/01_eda_overview.png" class="plot-img" alt="EDA">
+    </div>
+    <div class="card">
+      <h3>🕐 Temporal Patterns</h3>
+      <img src="/static/plots/02_temporal.png" class="plot-img" alt="Temporal">
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>🗺 Spatial Distribution</h3>
+        <img src="/static/plots/03_spatial.png" class="plot-img" alt="Spatial">
+      </div>
+      <div class="card">
+        <h3>🌦 Weather Impact</h3>
+        <img src="/static/plots/12_weather.png" class="plot-img" alt="Weather">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>📈 Predictions vs Actual</h3>
+        <img src="/static/plots/05_pred_vs_actual.png" class="plot-img" alt="Predictions">
+      </div>
+      <div class="card">
+        <h3>📉 Error Distribution</h3>
+        <img src="/static/plots/06_error_dist.png" class="plot-img" alt="Errors">
+      </div>
+    </div>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <div id="architecture" class="panel">
+    <div class="card">
+      <h3>🏗 System Architecture (End-to-End Pipeline)</h3>
+      <div class="arch-flow">
+        <div class="arch-box data"><h4>📡 Data Collection</h4><p>Yandex Traffic Tiles<br>OpenWeatherMap API<br>Every 30 min via GitHub Actions</p></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box data"><h4>🔧 Preprocessing</h4><p>HSV Color Classification<br>Street Mapping<br>Feature Engineering (24 features)</p></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box ml"><h4>🤖 ML Models</h4><p>XGBoost, Random Forest, MLP<br>Classification + Regression<br>K-Means Clustering</p></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box api"><h4>⚡ FastAPI</h4><p>REST API<br>Real-time Predictions<br>Model Serving</p></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box ui"><h4>🖥 Dashboard</h4><p>Interactive Map<br>Charts & Analytics<br>Prediction Interface</p></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>📐 Data Flow Diagram</h3>
+      <div style="background:var(--bg);padding:20px;border-radius:8px;font-family:monospace;font-size:0.8rem;line-height:2;overflow-x:auto">
+<pre style="color:var(--text)">
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        DATA COLLECTION LAYER                           │
+│                                                                         │
+│  Yandex Traffic Tiles ──→ HSV Pixel ──→ traffic_score ──→ CSV          │
+│  (PNG 256×256, zoom 15)   Classification   per tile         (append)    │
+│                                                                         │
+│  OpenWeatherMap API ────→ temp, humidity, precip, visibility            │
+│  Nominatim API ─────────→ street_name (reverse geocoding)              │
+│  GitHub Actions ────────→ Automated cron every 30 minutes              │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      FEATURE ENGINEERING LAYER                         │
+│                                                                         │
+│  Temporal:  hour, day_of_week, is_weekend, is_rush_hour, cyclical      │
+│  Weather:   temp, humidity, wind, precip, visibility, severity          │
+│  Spatial:   lat, lon, street_encoded, is_major_street                  │
+│  Autoregr:  lag_1, lag_2, lag_4, rolling_mean_6, rolling_std_6         │
+│                                                                         │
+│  ⚠ No target leakage: pct_* excluded from features                    │
+│  ⚠ Session-based lags: gaps > 45min invalidated                       │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        ML MODEL LAYER                                  │
+│                                                                         │
+│  Regression:      XGBoost, Random Forest, MLP Neural Network           │
+│  Classification:  XGBoost (F1=0.97), Random Forest (F1=0.93)           │
+│  Clustering:      K-Means (K=2, silhouette=0.407)                      │
+│  Explainability:  SHAP values, Feature Importance                      │
+│                                                                         │
+│  Train/Test Split: Out-of-Time (80/20), no temporal leakage            │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        APPLICATION LAYER                               │
+│                                                                         │
+│  FastAPI Server ──→ /api/predict  (real-time prediction)               │
+│                  ──→ /api/segments (map data)                          │
+│                  ──→ /api/hourly   (temporal patterns)                 │
+│                  ──→ /api/report   (model metrics)                     │
+│                                                                         │
+│  Frontend ───────→ Leaflet.js interactive map                          │
+│                  ──→ Chart.js visualizations                           │
+│                  ──→ Prediction form with instant results              │
+└─────────────────────────────────────────────────────────────────────────┘
+</pre>
+      </div>
+    </div>
+    <div class="card">
+      <h3>📋 Technical Stack</h3>
+      <div class="grid-3">
+        <div><h4 style="color:var(--green)">Data Collection</h4><ul style="font-size:0.85rem;color:var(--muted);list-style:none;padding:0"><li>• Python + aiohttp</li><li>• Pillow (HSV analysis)</li><li>• GitHub Actions (cron)</li><li>• OpenWeatherMap API</li><li>• Nominatim geocoding</li></ul></div>
+        <div><h4 style="color:var(--purple)">ML Pipeline</h4><ul style="font-size:0.85rem;color:var(--muted);list-style:none;padding:0"><li>• scikit-learn</li><li>• XGBoost</li><li>• SHAP</li><li>• pandas, numpy</li><li>• matplotlib, seaborn</li></ul></div>
+        <div><h4 style="color:var(--orange)">Web Application</h4><ul style="font-size:0.85rem;color:var(--muted);list-style:none;padding:0"><li>• FastAPI (Python)</li><li>• Leaflet.js (map)</li><li>• Chart.js (charts)</li><li>• HTML/CSS/JS</li><li>• uvicorn server</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer style="text-align:center;padding:20px;color:var(--muted);font-size:0.8rem;border-top:1px solid var(--border);margin-top:40px">
+  Almaty Traffic Prediction System — Demessinov Rakhymzhan & Kuantayev Sultan — 2026
+</footer>
+
+<script>
+const API = '';
+let map, segmentData;
+
+// ── Navigation ──
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  const panelId = id === 'map' ? 'map-panel' : id;
+  document.getElementById(panelId).classList.add('active');
+  event.target.classList.add('active');
+  if (id === 'map' && !map) initMap();
+}
+
+// ── Load Dashboard ──
+async function loadDashboard() {
+  try {
+    const [summary, hourly, daily, hotspots, report] = await Promise.all([
+      fetch(`${API}/api/summary`).then(r=>r.json()),
+      fetch(`${API}/api/hourly`).then(r=>r.json()),
+      fetch(`${API}/api/daily`).then(r=>r.json()),
+      fetch(`${API}/api/hotspots`).then(r=>r.json()),
+      fetch(`${API}/api/report`).then(r=>r.json()),
+    ]);
+
+    // Stats bar
+    document.getElementById('stats-bar').innerHTML = `
+      <div class="stat"><div class="value">${summary.segments}</div><div class="label">Traffic Zones</div></div>
+      <div class="stat"><div class="value">${(summary.rows/1000).toFixed(1)}K</div><div class="label">Observations</div></div>
+      <div class="stat"><div class="value">${summary.max_score}</div><div class="label">Max Score</div></div>
+      <div class="stat"><div class="value">${summary.congested_pct}%</div><div class="label">Congested</div></div>
+      <div class="stat"><div class="value">99.4%</div><div class="label">Detection Accuracy</div></div>
+      <div class="stat"><div class="value">0.97</div><div class="label">F1 Score</div></div>
+    `;
+
+    // Hourly chart
+    new Chart(document.getElementById('hourlyChart'), {
+      type: 'line',
+      data: {
+        labels: hourly.map(h => `${h.hour}:00`),
+        datasets: [{
+          label: 'Mean Score',
+          data: hourly.map(h => h.mean),
+          borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+          fill: true, tension: 0.3, pointRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {y: {beginAtZero: false, grid: {color:'#2a2d3a'}}, x: {grid: {color:'#2a2d3a'}}},
+        plugins: {legend: {labels: {color:'#e4e4e7'}}},
+      }
+    });
+
+    // Daily chart
+    new Chart(document.getElementById('dailyChart'), {
+      type: 'bar',
+      data: {
+        labels: daily.map(d => d.day),
+        datasets: [{
+          label: 'Mean Score',
+          data: daily.map(d => d.mean),
+          backgroundColor: daily.map(d =>
+            d.day === 'Sat' || d.day === 'Sun' ? '#22c55e' : '#3b82f6'),
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {y: {beginAtZero: false, grid: {color:'#2a2d3a'}}, x: {grid: {color:'#2a2d3a'}}},
+        plugins: {legend: {labels: {color:'#e4e4e7'}}},
+      }
+    });
+
+    // Hotspots table
+    const tbody = hotspots.map((h, i) => {
+      const lvl = h.max > 4 ? 'High' : (h.max > 3 ? 'Medium' : 'Low');
+      const cls = h.max > 4 ? 'score-high' : (h.max > 3 ? 'score-medium' : 'score-low');
+      const zones = h.zones || 1;
+      return `<tr>
+        <td>${i+1}</td><td>${h.street}</td><td>${zones}</td>
+        <td>${h.mean}</td><td class="${cls}">${h.max}</td>
+        <td class="${cls}">${lvl}</td></tr>`;
+    }).join('');
+    document.querySelector('#hotspots-table tbody').innerHTML = tbody;
+
+    // Model metrics
+    const reg = report.regression || {};
+    let regHtml = '';
+    for (const [name, m] of Object.entries(reg)) {
+      regHtml += `<div style="margin-bottom:12px"><h4 style="color:var(--accent)">${name}</h4>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">MAE</span><span class="metric-val">${m.MAE}</span></div>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">RMSE</span><span class="metric-val">${m.RMSE}</span></div>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">R²</span><span class="metric-val">${m.R2}</span></div>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">MAPE</span><span class="metric-val">${m.MAPE}%</span></div>`;
+      regHtml += `</div>`;
+    }
+    document.getElementById('reg-metrics').innerHTML = regHtml;
+
+    const cls = report.classification || {};
+    let clsHtml = '';
+    for (const [name, m] of Object.entries(cls)) {
+      clsHtml += `<div style="margin-bottom:12px"><h4 style="color:var(--accent)">${name}</h4>`;
+      clsHtml += `<div class="metric-row"><span class="metric-name">Accuracy</span><span class="metric-val">${(m.accuracy*100).toFixed(1)}%</span></div>`;
+      clsHtml += `<div class="metric-row"><span class="metric-name">F1</span><span class="metric-val">${m.f1}</span></div>`;
+      clsHtml += `<div class="metric-row"><span class="metric-name">Precision</span><span class="metric-val">${m.precision}</span></div>`;
+      clsHtml += `<div class="metric-row"><span class="metric-name">Recall</span><span class="metric-val">${m.recall}</span></div>`;
+      clsHtml += `</div>`;
+    }
+    document.getElementById('cls-metrics').innerHTML = clsHtml;
+
+    // Feature importance bars
+    const feats = report.feature_importance || [];
+    const maxImp = feats.length > 0 ? feats[0].importance : 1;
+    let featHtml = '';
+    for (const f of feats) {
+      const w = (f.importance / maxImp * 100).toFixed(0);
+      featHtml += `<div class="feat-bar">
+        <span class="name">${f.feature}</span>
+        <div class="bar" style="width:${w}%"></div>
+        <span class="val">${(f.importance*100).toFixed(1)}%</span>
+      </div>`;
+    }
+    document.getElementById('feat-bars').innerHTML = featHtml;
+
+  } catch(e) {
+    console.error('Dashboard load error:', e);
+  }
+}
+
+// ── Map with tile grid ──
+let mapData = null;
+let tileRects = [];
+let playInterval = null;
+
+function scoreToColor(score) {
+  if (score >= 3.0) return '#ef4444';
+  if (score >= 2.0) return '#f97316';
+  if (score >= 1.6) return '#eab308';
+  if (score > 0) return '#22c55e';
+  return '#1a1d27';
+}
+
+function scoreToOpacity(score) {
+  if (score >= 3.0) return 0.7;
+  if (score >= 2.0) return 0.55;
+  if (score >= 1.6) return 0.4;
+  if (score > 0) return 0.25;
+  return 0.15;
+}
+
+async function initMap() {
+  map = L.map('map', {zoomControl: true}).setView([43.265, 76.945], 12);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap, CARTO', maxZoom: 18
+  }).addTo(map);
+
+  try {
+    const resp = await fetch('/static/map_data.json?v=' + Date.now());
+    mapData = await resp.json();
+    
+    // Draw all cells initially
+    updateMapHour(21);
+    
+    // Slider
+    document.getElementById('hour-slider').value = 21;
+    document.getElementById('hour-label').textContent = '21:00';
+    document.getElementById('hour-slider').addEventListener('input', function() {
+      const h = parseInt(this.value);
+      document.getElementById('hour-label').textContent = h.toString().padStart(2,'0') + ':00';
+      updateMapHour(h);
+    });
+  } catch(e) {
+    console.error('Map error:', e);
+  }
+}
+
+function updateMapHour(hour) {
+  // Remove old
+  for (let i = 0; i < tileRects.length; i++) {
+    map.removeLayer(tileRects[i]);
+  }
+  tileRects = [];
+
+  const cells = mapData.grid || [];
+  let congested = 0;
+  let withData = 0;
+
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i];
+    let score = 0;
+    let hasData = cell.has_data;
+    
+    if (hasData) {
+      withData++;
+      const hd = mapData.hourly[cell.id];
+      score = (hd && hd[hour] !== undefined) ? hd[hour] : cell.mean;
+      if (score > 2.0) congested++;
+    }
+
+    const color = scoreToColor(score);
+    const opacity = scoreToOpacity(score);
+
+    const rect = L.rectangle(cell.bounds, {
+      color: hasData ? color : '#333',
+      fillColor: hasData ? color : '#1a1d27',
+      fillOpacity: hasData ? opacity : 0.1,
+      weight: 0.3,
+      opacity: 0.4,
+    }).addTo(map);
+
+    if (hasData) {
+      rect.bindPopup(
+        '<div style="font-size:13px">' +
+        '<b style="font-size:16px;color:' + color + '">' + score.toFixed(2) + '</b><br>' +
+        'Mean: ' + cell.mean + ' | Max: ' + cell.max + '<br>' +
+        hour + ':00 Almaty</div>'
+      );
+    } else {
+      rect.bindPopup('<div style="color:#888">No traffic data</div>');
+    }
+    
+    tileRects.push(rect);
+  }
+
+  document.getElementById('map-stats').textContent = 
+    congested + '/' + withData + ' zones congested at ' + hour + ':00';
+}
+
+function playHours() {
+  if (playInterval) {
+    clearInterval(playInterval);
+    playInterval = null;
+    document.getElementById('play-btn').textContent = '▶ Play 24h';
+    return;
+  }
+  document.getElementById('play-btn').textContent = '⏹ Stop';
+  let h = 0;
+  var slider = document.getElementById('hour-slider');
+  playInterval = setInterval(function() {
+    slider.value = h;
+    document.getElementById('hour-label').textContent = h.toString().padStart(2,'0') + ':00';
+    updateMapHour(h);
+    h++;
+    if (h >= 24) {
+      clearInterval(playInterval);
+      playInterval = null;
+      document.getElementById('play-btn').textContent = '▶ Play 24h';
+    }
+  }, 600);
+}
+
+// ── Predict ──
+function setLoc(lat, lon, name) {
+  document.getElementById('p-lat').value = lat;
+  document.getElementById('p-lon').value = lon;
+}
+
+async function predict() {
+  const lat = document.getElementById('p-lat').value;
+  const lon = document.getElementById('p-lon').value;
+  const hour = document.getElementById('p-hour').value;
+  const day = document.getElementById('p-day').value;
+  const temp = document.getElementById('p-temp').value;
+  const precip = document.getElementById('p-precip').value;
+
+  try {
+    const res = await fetch(`${API}/api/predict?lat=${lat}&lon=${lon}&hour=${hour}&day=${day}&temp=${temp}&precip=${precip}`);
+    const data = await res.json();
+
+    const el = document.getElementById('pred-result');
+    el.style.display = 'block';
+
+    const prob = data.congestion_probability || 0;
+    const cls = prob > 30 ? 'bg-high' : (prob > 10 ? 'bg-medium' : 'bg-low');
+    const scoreCls = prob > 30 ? 'score-high' : (prob > 10 ? 'score-medium' : 'score-low');
+    el.className = `pred-result ${cls}`;
+
+    document.getElementById('pred-score').className = `score ${scoreCls}`;
+    document.getElementById('pred-score').textContent = `${prob}%`;
+    document.getElementById('pred-level').textContent = `${data.risk} — Congestion Probability`;
+    document.getElementById('pred-details').innerHTML =
+      `Zone: <b>${data.nearest_street}</b><br>` +
+      `Predicted score: ${data.predicted_score} (max possible: ${data.predicted_max})<br>` +
+      `Speed estimate: ${data.speed_estimate_kmh} km/h | ` +
+      `Zone avg: ${data.zone_stats.mean} | Zone max: ${data.zone_stats.max}<br>` +
+      (data.rain_effect !== 'none' ? `🌧 Rain effect: ${data.rain_effect}` : '☀ No rain effect');
+  } catch(e) { console.error('Predict error:', e); }
+}
+
+// ── Init ──
+loadDashboard();
+</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+{
+  "regression": {
+    "RandomForest": {
+      "MAE": 0.0066,
+      "RMSE": 0.0346,
+      "R2": 0.9901,
+      "MAPE": 0.3,
+      "sMAPE": 0.3
+    },
+    "XGBoost": {
+      "MAE": 0.0078,
+      "RMSE": 0.0355,
+      "R2": 0.9896,
+      "MAPE": 0.38,
+      "sMAPE": 0.38
+    },
+    "MLP": {
+      "MAE": 0.0214,
+      "RMSE": 0.0275,
+      "R2": 0.9938,
+      "MAPE": 1.34,
+      "sMAPE": 1.33
+    }
+  },
+  "classification": {
+    "XGBoost": {
+      "accuracy": 0.9944,
+      "f1": 0.9747,
+      "precision": 0.9612,
+      "recall": 0.9886
+    },
+    "RF": {
+      "accuracy": 0.9852,
+      "f1": 0.9317,
+      "precision": 0.9299,
+      "recall": 0.9335
+    }
+  },
+  "clustering": {
+    "k": 2,
+    "silhouette": 0.407
+  },
+  "counterfactual": [
+    {
+      "name": "Rush hour signal optimization",
+      "description": "Smart traffic lights reduce rush-hour delays",
+      "baseline_score": 2.244,
+      "modified_score": 2.244,
+      "reduction_pct": -0.0
+    },
+    {
+      "name": "Weather resilience (clear conditions)",
+      "description": "Road infrastructure handles bad weather better",
+      "baseline_score": 2.244,
+      "modified_score": 2.244,
+      "reduction_pct": 0.01
+    },
+    {
+      "name": "10% prior congestion reduction",
+      "description": "Infrastructure improvements reduce upstream congestion",
+      "baseline_score": 2.244,
+      "modified_score": 2.038,
+      "reduction_pct": 9.16
+    },
+    {
+      "name": "20% prior congestion reduction",
+      "description": "Major infrastructure overhaul (new lanes, bypasses)",
+      "baseline_score": 2.244,
+      "modified_score": 1.857,
+      "reduction_pct": 17.26
+    }
+  ],
+  "data": {
+    "total_rows": 24288,
+    "train_rows": 19430,
+    "test_rows": 4858,
+    "segments": 220,
+    "features": 24,
+    "date_range": "2026-04-17 \u2192 2026-05-03"
+  },
+  "feature_importance": [
+    {
+      "feature": "rolling_mean_6",
+      "importance": 0.631345808506012
+    },
+    {
+      "feature": "lag_1",
+      "importance": 0.14761531352996826
+    },
+    {
+      "feature": "diff_1",
+      "importance": 0.14412876963615417
+    },
+    {
+      "feature": "rolling_std_6",
+      "importance": 0.015885187312960625
+    },
+    {
+      "feature": "lag_2",
+      "importance": 0.014126408845186234
+    },
+    {
+      "feature": "is_major_street",
+      "importance": 0.006340204272419214
+    },
+    {
+      "feature": "hour",
+      "importance": 0.006143947597593069
+    },
+    {
+      "feature": "hour_sin",
+      "importance": 0.004920491948723793
+    },
+    {
+      "feature": "hour_cos",
+      "importance": 0.0038256733678281307
+    },
+    {
+      "feature": "street_encoded",
+      "importance": 0.0032186987809836864
+    }
+  ]
+}
