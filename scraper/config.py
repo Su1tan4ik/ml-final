@@ -92,9 +92,9 @@ RETRY_BACKOFF = 2
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
-OUTPUT_DIR    = "../data"
-OUTPUT_FILE   = "staging.csv"    # cleared after feature engineering processes it
-LATEST_FILE   = "staging.csv"    # same file — latest snapshot = staging buffer
+OUTPUT_DIR    = "../data/raw"
+OUTPUT_FILE   = "traffic_data.csv"
+LATEST_FILE   = "traffic_data.csv"
 
 # ---------------------------------------------------------------------------
 # Geocoding
