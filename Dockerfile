@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy everything else
 COPY . .
 
-EXPOSE 8000
+EXPOSE 7860
 
-# PORT is set by Render/Railway; fallback to 8000 locally
-CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
+# HF Spaces uses 7860, Render/Railway set $PORT
+CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-7860}

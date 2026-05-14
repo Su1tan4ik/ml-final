@@ -1,3 +1,13 @@
+---
+title: Almaty Traffic Prediction
+emoji: 🚦
+colorFrom: red
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Almaty Traffic Congestion Prediction System
 
 **AI-Powered Traffic Congestion Prediction and Infrastructure Optimization**
