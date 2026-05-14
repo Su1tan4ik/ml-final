@@ -46,5 +46,9 @@ jobs:
           git push
 
       - name: Trigger Render deploy
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
-        run: curl -s "${{ secrets.RENDER_DEPLOY_HOOK }}"
+        run: |
+          if [ -n "$RENDER_HOOK" ]; then
+            curl -s "$RENDER_HOOK"
+          fi
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
