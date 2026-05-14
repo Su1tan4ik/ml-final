@@ -46,6 +46,11 @@ jobs:
             git commit -m "models: retrain $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           git push
 
+      - name: Push to HF Spaces
+        run: |
+          git remote add space https://Rakhymzhan:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Rakhymzhan/almaty-traffic || true
+          git push space main --force
+
       - name: Trigger Render deploy
         run: |
           if [ -n "$RENDER_HOOK" ]; then
