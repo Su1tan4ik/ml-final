@@ -256,6 +256,12 @@ def run():
 
     # ── 4. Append to data.csv ─────────────────────────────────────────
     write_header = not proc_path.exists()
+    if not write_header:
+        existing_cols = pd.read_csv(proc_path, nrows=0).columns.tolist()
+        for col in existing_cols:
+            if col not in df.columns:
+                df[col] = np.nan
+        df = df[existing_cols]
     df.to_csv(proc_path, mode="a", index=False, header=write_header)
     print(f"Appended {len(df):,} rows → {proc_path}")
 
