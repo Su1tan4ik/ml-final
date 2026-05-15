@@ -1,123 +1,123 @@
 {
   "regression": {
     "RandomForest": {
-      "MAE": 0.0433,
-      "RMSE": 0.1168,
-      "R2": 0.8448,
+      "MAE": 0.0432,
+      "RMSE": 0.1166,
+      "R2": 0.8457,
       "MAPE": 2.35,
       "sMAPE": 2.35
     },
     "XGBoost": {
-      "MAE": 0.0469,
-      "RMSE": 0.1201,
-      "R2": 0.836,
-      "MAPE": 2.55,
-      "sMAPE": 2.54
+      "MAE": 0.0465,
+      "RMSE": 0.1193,
+      "R2": 0.8383,
+      "MAPE": 2.52,
+      "sMAPE": 2.52
     },
     "MLP": {
-      "MAE": 0.0499,
-      "RMSE": 0.1348,
-      "R2": 0.7933,
-      "MAPE": 2.68,
-      "sMAPE": 2.67
+      "MAE": 0.073,
+      "RMSE": 0.2374,
+      "R2": 0.3599,
+      "MAPE": 4.18,
+      "sMAPE": 3.66
     }
   },
   "classification": {
     "XGBoost": {
-      "accuracy": 0.9342,
-      "f1": 0.6851,
-      "precision": 0.5381,
-      "recall": 0.9425
+      "accuracy": 0.9328,
+      "f1": 0.6804,
+      "precision": 0.5324,
+      "recall": 0.9423
     },
     "RF": {
-      "accuracy": 0.9423,
-      "f1": 0.7077,
-      "precision": 0.5752,
-      "recall": 0.9195
+      "accuracy": 0.9416,
+      "f1": 0.7044,
+      "precision": 0.572,
+      "recall": 0.9166
     }
   },
   "clustering": {
     "k": 2,
-    "silhouette": 0.438
+    "silhouette": 0.442
   },
   "counterfactual": [
     {
       "name": "Rush hour signal optimization",
       "description": "Smart traffic lights reduce rush-hour delays",
-      "baseline_score": 2.161,
-      "modified_score": 2.159,
-      "reduction_pct": 0.09
+      "baseline_score": 2.163,
+      "modified_score": 2.162,
+      "reduction_pct": 0.07
     },
     {
       "name": "Weather resilience (clear conditions)",
       "description": "Road infrastructure handles bad weather better",
-      "baseline_score": 2.161,
-      "modified_score": 2.161,
+      "baseline_score": 2.163,
+      "modified_score": 2.163,
       "reduction_pct": -0.0
     },
     {
       "name": "10% prior congestion reduction",
       "description": "Infrastructure improvements reduce upstream congestion",
-      "baseline_score": 2.161,
-      "modified_score": 1.95,
+      "baseline_score": 2.163,
+      "modified_score": 1.951,
       "reduction_pct": 9.78
     },
     {
       "name": "20% prior congestion reduction",
       "description": "Major infrastructure overhaul (new lanes, bypasses)",
-      "baseline_score": 2.161,
-      "modified_score": 1.776,
-      "reduction_pct": 17.82
+      "baseline_score": 2.163,
+      "modified_score": 1.775,
+      "reduction_pct": 17.96
     }
   ],
   "data": {
-    "total_rows": 260916,
-    "train_rows": 208732,
-    "test_rows": 52184,
-    "segments": 561,
+    "total_rows": 261345,
+    "train_rows": 209076,
+    "test_rows": 52269,
+    "segments": 578,
     "features": 24,
-    "date_range": "2026-04-05 \u2192 2026-05-14"
+    "date_range": "2026-04-05 \u2192 2026-05-15"
   },
   "feature_importance": [
     {
       "feature": "lag_1",
-      "importance": 0.5098609328269958
+      "importance": 0.5083910226821899
     },
     {
       "feature": "rolling_mean_6",
-      "importance": 0.15764012932777405
+      "importance": 0.15677125751972198
     },
     {
       "feature": "diff_1",
-      "importance": 0.120155468583107
-    },
-    {
-      "feature": "is_night",
-      "importance": 0.021006157621741295
+      "importance": 0.1246173158288002
     },
     {
       "feature": "hour_sin",
-      "importance": 0.018626708537340164
+      "importance": 0.019227784126996994
+    },
+    {
+      "feature": "is_night",
+      "importance": 0.018365638330578804
     },
     {
       "feature": "lag_2",
-      "importance": 0.01588939130306244
-    },
-    {
-      "feature": "lat",
-      "importance": 0.015405531041324139
-    },
-    {
-      "feature": "hour_cos",
-      "importance": 0.015051844529807568
+      "importance": 0.015529373660683632
     },
     {
       "feature": "hour",
-      "importance": 0.013355465605854988
+      "importance": 0.015492411330342293
     },
     {
-      "feature": "is_rush_hour",
-      "importance": 0.012448939494788647
+      "feature": "is_weekend",
+      "importance": 0.015483247116208076
+    },
+    {
+      "feature": "hour_cos",
+      "importance": 0.015102000907063484
+    },
+    {
+      "feature": "lat",
+      "importance": 0.014854060485959053
     }
   ]
 }
