@@ -2,122 +2,122 @@
   "regression": {
     "RandomForest": {
       "MAE": 0.0428,
-      "RMSE": 0.1159,
-      "R2": 0.8473,
+      "RMSE": 0.116,
+      "R2": 0.8472,
       "MAPE": 2.32,
       "sMAPE": 2.32
     },
     "XGBoost": {
-      "MAE": 0.0464,
-      "RMSE": 0.1191,
-      "R2": 0.8387,
-      "MAPE": 2.52,
-      "sMAPE": 2.51
+      "MAE": 0.0462,
+      "RMSE": 0.1188,
+      "R2": 0.8396,
+      "MAPE": 2.5,
+      "sMAPE": 2.5
     },
     "MLP": {
-      "MAE": 0.0557,
-      "RMSE": 0.1459,
-      "R2": 0.7581,
-      "MAPE": 3.05,
-      "sMAPE": 2.96
+      "MAE": 0.0814,
+      "RMSE": 0.2801,
+      "R2": 0.109,
+      "MAPE": 4.69,
+      "sMAPE": 3.95
     }
   },
   "classification": {
     "XGBoost": {
-      "accuracy": 0.9333,
-      "f1": 0.6821,
-      "precision": 0.5346,
-      "recall": 0.9419
+      "accuracy": 0.9329,
+      "f1": 0.681,
+      "precision": 0.5328,
+      "recall": 0.9432
     },
     "RF": {
-      "accuracy": 0.9418,
-      "f1": 0.7051,
-      "precision": 0.5732,
-      "recall": 0.916
+      "accuracy": 0.9412,
+      "f1": 0.7036,
+      "precision": 0.5697,
+      "recall": 0.9196
     }
   },
   "clustering": {
     "k": 2,
-    "silhouette": 0.443
+    "silhouette": 0.444
   },
   "counterfactual": [
     {
       "name": "Rush hour signal optimization",
       "description": "Smart traffic lights reduce rush-hour delays",
       "baseline_score": 2.162,
-      "modified_score": 2.16,
-      "reduction_pct": 0.08
+      "modified_score": 2.159,
+      "reduction_pct": 0.12
     },
     {
       "name": "Weather resilience (clear conditions)",
       "description": "Road infrastructure handles bad weather better",
       "baseline_score": 2.162,
-      "modified_score": 2.162,
-      "reduction_pct": 0.01
+      "modified_score": 2.161,
+      "reduction_pct": 0.02
     },
     {
       "name": "10% prior congestion reduction",
       "description": "Infrastructure improvements reduce upstream congestion",
       "baseline_score": 2.162,
       "modified_score": 1.95,
-      "reduction_pct": 9.82
+      "reduction_pct": 9.79
     },
     {
       "name": "20% prior congestion reduction",
       "description": "Major infrastructure overhaul (new lanes, bypasses)",
       "baseline_score": 2.162,
       "modified_score": 1.775,
-      "reduction_pct": 17.91
+      "reduction_pct": 17.9
     }
   ],
   "data": {
-    "total_rows": 261773,
-    "train_rows": 209418,
-    "test_rows": 52355,
-    "segments": 581,
+    "total_rows": 262203,
+    "train_rows": 209762,
+    "test_rows": 52441,
+    "segments": 584,
     "features": 24,
-    "date_range": "2026-04-05 \u2192 2026-05-16"
+    "date_range": "2026-04-05 \u2192 2026-06-01"
   },
   "feature_importance": [
     {
       "feature": "lag_1",
-      "importance": 0.5192387700080872
+      "importance": 0.5035359859466553
     },
     {
       "feature": "rolling_mean_6",
-      "importance": 0.15039020776748657
+      "importance": 0.15869347751140594
     },
     {
       "feature": "diff_1",
-      "importance": 0.11971808969974518
-    },
-    {
-      "feature": "hour_sin",
-      "importance": 0.019508324563503265
+      "importance": 0.11835436522960663
     },
     {
       "feature": "is_night",
-      "importance": 0.01750212348997593
+      "importance": 0.01937212236225605
+    },
+    {
+      "feature": "hour_sin",
+      "importance": 0.01853249967098236
     },
     {
       "feature": "hour",
-      "importance": 0.01566176675260067
+      "importance": 0.015219944529235363
     },
     {
       "feature": "lag_2",
-      "importance": 0.015507802367210388
+      "importance": 0.015102943405508995
     },
     {
       "feature": "hour_cos",
-      "importance": 0.015311043709516525
+      "importance": 0.01509958878159523
     },
     {
       "feature": "lat",
-      "importance": 0.014570177532732487
+      "importance": 0.015033622272312641
     },
     {
-      "feature": "is_rush_hour",
-      "importance": 0.011732256971299648
+      "feature": "rain_x_rush",
+      "importance": 0.012341391295194626
     }
   ]
 }
