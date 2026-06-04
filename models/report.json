@@ -2,38 +2,38 @@
   "regression": {
     "RandomForest": {
       "MAE": 0.0423,
-      "RMSE": 0.1152,
-      "R2": 0.8501,
+      "RMSE": 0.1151,
+      "R2": 0.8508,
       "MAPE": 2.29,
       "sMAPE": 2.29
     },
     "XGBoost": {
-      "MAE": 0.046,
+      "MAE": 0.0461,
       "RMSE": 0.1185,
-      "R2": 0.8413,
+      "R2": 0.8417,
       "MAPE": 2.49,
       "sMAPE": 2.49
     },
     "MLP": {
-      "MAE": 0.0765,
-      "RMSE": 0.2513,
-      "R2": 0.2861,
-      "MAPE": 4.38,
-      "sMAPE": 3.79
+      "MAE": 0.1108,
+      "RMSE": 0.472,
+      "R2": -1.5091,
+      "MAPE": 6.6,
+      "sMAPE": 4.75
     }
   },
   "classification": {
     "XGBoost": {
-      "accuracy": 0.9323,
-      "f1": 0.6803,
-      "precision": 0.5315,
-      "recall": 0.9449
+      "accuracy": 0.9314,
+      "f1": 0.6783,
+      "precision": 0.5289,
+      "recall": 0.9455
     },
     "RF": {
-      "accuracy": 0.9358,
-      "f1": 0.6891,
-      "precision": 0.5464,
-      "recall": 0.9327
+      "accuracy": 0.9342,
+      "f1": 0.6852,
+      "precision": 0.5405,
+      "recall": 0.9358
     }
   },
   "clustering": {
@@ -44,80 +44,80 @@
     {
       "name": "Rush hour signal optimization",
       "description": "Smart traffic lights reduce rush-hour delays",
-      "baseline_score": 2.165,
-      "modified_score": 2.162,
+      "baseline_score": 2.169,
+      "modified_score": 2.166,
       "reduction_pct": 0.13
     },
     {
       "name": "Weather resilience (clear conditions)",
       "description": "Road infrastructure handles bad weather better",
-      "baseline_score": 2.165,
-      "modified_score": 2.165,
+      "baseline_score": 2.169,
+      "modified_score": 2.169,
       "reduction_pct": 0.0
     },
     {
       "name": "10% prior congestion reduction",
       "description": "Infrastructure improvements reduce upstream congestion",
-      "baseline_score": 2.165,
-      "modified_score": 1.953,
-      "reduction_pct": 9.8
+      "baseline_score": 2.169,
+      "modified_score": 1.954,
+      "reduction_pct": 9.91
     },
     {
       "name": "20% prior congestion reduction",
       "description": "Major infrastructure overhaul (new lanes, bypasses)",
-      "baseline_score": 2.165,
-      "modified_score": 1.777,
-      "reduction_pct": 17.92
+      "baseline_score": 2.169,
+      "modified_score": 1.778,
+      "reduction_pct": 18.03
     }
   ],
   "data": {
-    "total_rows": 263065,
-    "train_rows": 210452,
-    "test_rows": 52613,
-    "segments": 588,
+    "total_rows": 263497,
+    "train_rows": 210797,
+    "test_rows": 52700,
+    "segments": 592,
     "features": 24,
-    "date_range": "2026-04-05 \u2192 2026-06-03"
+    "date_range": "2026-04-05 \u2192 2026-06-04"
   },
   "feature_importance": [
     {
       "feature": "lag_1",
-      "importance": 0.5224646925926208
+      "importance": 0.5125913619995117
     },
     {
       "feature": "rolling_mean_6",
-      "importance": 0.15042729675769806
+      "importance": 0.16008178889751434
     },
     {
       "feature": "diff_1",
-      "importance": 0.12056200206279755
+      "importance": 0.12153278291225433
     },
     {
       "feature": "is_night",
-      "importance": 0.019600503146648407
+      "importance": 0.02091231755912304
     },
     {
       "feature": "hour_sin",
-      "importance": 0.01835521124303341
+      "importance": 0.019469477236270905
     },
     {
       "feature": "hour_cos",
-      "importance": 0.015252704732120037
-    },
-    {
-      "feature": "lat",
-      "importance": 0.014923179522156715
-    },
-    {
-      "feature": "hour",
-      "importance": 0.01488893199712038
+      "importance": 0.01561617199331522
     },
     {
       "feature": "lag_2",
-      "importance": 0.01350447628647089
+      "importance": 0.01508746575564146
+    },
+    {
+      "feature": "hour",
+      "importance": 0.014627471566200256
+    },
+    {
+      "feature": "lat",
+      "importance": 0.014265256002545357
     },
     {
       "feature": "is_rush_hour",
-      "importance": 0.013363193720579147
+      "importance": 0.011948234401643276
     }
   ]
 }
