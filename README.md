@@ -67,11 +67,13 @@ Data Collection → Preprocessing → Feature Engineering → ML Models → API 
 ## Results
 
 | Model | MAE | R² | MAPE |
-|-------|-----|-----|------|
-| Random Forest | 0.0066 | 0.990 | 0.30% |
-| XGBoost | 0.0075 | 0.991 | 0.36% |
-| MLP Neural Net | 0.0214 | 0.994 | 1.34% |
+|---|---|---|---|
+| Naive baseline (last value) | 0.063 | 0.724 | — |
+| Random Forest | 0.0623 | 0.778 | 3.40% |
+| XGBoost | 0.0627 | 0.779 | 3.41% |
+| MLP Neural Net | 0.0811 | 0.543 | 4.55% |
 
+> An earlier version reported R² ≈ 0.99 because the `diff_1` feature included the current target value (data leakage). It was replaced with `diff_2` (difference between the two previous values), and models are now compared with a naive last-value baseline.
 **Classification (Congestion Detection):** XGBoost Accuracy=99.4%, F1=0.975
 
 ## API Endpoints
