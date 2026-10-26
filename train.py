@@ -64,7 +64,7 @@ FEATURES = [
     'weather_temp_c','weather_humidity','weather_wind_ms',
     'weather_precip_1h','is_low_visibility','weather_severity','rain_x_rush',
     'lat','lon','street_encoded','is_major_street','dist_from_center',
-    'lag_1','lag_2','rolling_mean_6','rolling_std_6','diff_1',
+    'lag_1','lag_2','rolling_mean_6','rolling_std_6','diff_2',
 ]
 TARGET = 'traffic_score'
 
