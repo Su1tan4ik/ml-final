@@ -8,9 +8,9 @@
       "sMAPE": 4.0
     },
     "XGBoost": {
-      "MAE": 0.0729,
-      "RMSE": 0.1509,
-      "R2": 0.7727,
+      "MAE": 0.073,
+      "RMSE": 0.1515,
+      "R2": 0.771,
       "MAPE": 3.97,
       "sMAPE": 3.97
     },
@@ -46,11 +46,11 @@
       "threshold": 0.375
     },
     "RF": {
-      "accuracy": 0.9488,
-      "f1": 0.7253,
-      "precision": 0.6923,
-      "recall": 0.7617,
-      "threshold": 0.3
+      "accuracy": 0.9507,
+      "f1": 0.7293,
+      "precision": 0.7116,
+      "recall": 0.7479,
+      "threshold": 0.325
     }
   },
   "clustering": {
@@ -62,33 +62,33 @@
       "name": "Peak spreading: rush trips at 14:00",
       "description": "Rush-hour observations re-timed to 14:00 (flexible hours)",
       "rows": 1689,
-      "baseline_score": 2.148,
-      "modified_score": 2.095,
-      "change_pct": -2.47
+      "baseline_score": 2.149,
+      "modified_score": 2.093,
+      "change_pct": -2.59
     },
     {
       "name": "Clear weather",
       "description": "Precipitation and low visibility removed",
       "rows": 6676,
-      "baseline_score": 2.119,
+      "baseline_score": 2.118,
       "modified_score": 2.118,
-      "change_pct": -0.04
+      "change_pct": -0.02
     },
     {
       "name": "Heavy rain (5 mm/h)",
       "description": "Same moments under heavy rain",
       "rows": 6676,
-      "baseline_score": 2.119,
-      "modified_score": 2.126,
-      "change_pct": 0.33
+      "baseline_score": 2.118,
+      "modified_score": 2.113,
+      "change_pct": -0.24
     },
     {
       "name": "Persistence: +20% congestion now",
       "description": "Share of a congestion shock that persists 30 min later",
       "rows": 6676,
-      "baseline_score": 2.119,
-      "modified_score": 2.341,
-      "change_pct": 10.47
+      "baseline_score": 2.118,
+      "modified_score": 2.339,
+      "change_pct": 10.43
     }
   ],
   "data": {
@@ -103,43 +103,43 @@
   "feature_importance": [
     {
       "feature": "lag_1",
-      "importance": 0.3647211790084839
+      "importance": 0.42166855931282043
     },
     {
       "feature": "slot_hist_mean",
-      "importance": 0.2677800953388214
+      "importance": 0.2702190577983856
     },
     {
       "feature": "rolling_mean_6",
-      "importance": 0.13604508340358734
+      "importance": 0.08103857934474945
     },
     {
       "feature": "is_rush_hour",
-      "importance": 0.01672285795211792
-    },
-    {
-      "feature": "lag_2",
-      "importance": 0.016407575458288193
-    },
-    {
-      "feature": "is_night",
-      "importance": 0.014922075904905796
+      "importance": 0.015849700197577477
     },
     {
       "feature": "is_weekend",
-      "importance": 0.013952724635601044
+      "importance": 0.015218410640954971
+    },
+    {
+      "feature": "lag_2",
+      "importance": 0.01468588039278984
     },
     {
       "feature": "hour_sin",
-      "importance": 0.01382506638765335
+      "importance": 0.013961990363895893
+    },
+    {
+      "feature": "is_night",
+      "importance": 0.013867398723959923
     },
     {
       "feature": "day_of_week",
-      "importance": 0.013675615191459656
+      "importance": 0.01358292531222105
     },
     {
       "feature": "hour_cos",
-      "importance": 0.013164223171770573
+      "importance": 0.012995408847928047
     }
   ]
 }
