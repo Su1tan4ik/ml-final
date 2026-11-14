@@ -1,131 +1,145 @@
 {
   "regression": {
     "RandomForest": {
-      "MAE": 0.0655,
-      "RMSE": 0.1452,
-      "R2": 0.762,
-      "MAPE": 3.57,
-      "sMAPE": 3.58
+      "MAE": 0.0734,
+      "RMSE": 0.1505,
+      "R2": 0.774,
+      "MAPE": 4.01,
+      "sMAPE": 4.0
     },
     "XGBoost": {
-      "MAE": 0.0648,
-      "RMSE": 0.1439,
-      "R2": 0.7664,
-      "MAPE": 3.53,
-      "sMAPE": 3.54
+      "MAE": 0.0729,
+      "RMSE": 0.1509,
+      "R2": 0.7727,
+      "MAPE": 3.97,
+      "sMAPE": 3.97
     },
     "MLP": {
-      "MAE": 0.0788,
-      "RMSE": 0.1689,
-      "R2": 0.6782,
-      "MAPE": 4.39,
-      "sMAPE": 4.29
+      "MAE": 0.0808,
+      "RMSE": 0.1561,
+      "R2": 0.7569,
+      "MAPE": 4.46,
+      "sMAPE": 4.44
     }
   },
   "baseline": {
     "name": "Naive (last value)",
-    "MAE": 0.0666,
-    "RMSE": 0.1612,
-    "R2": 0.7068,
-    "MAPE": 3.58,
-    "sMAPE": 3.58
+    "MAE": 0.0765,
+    "RMSE": 0.1715,
+    "R2": 0.7066,
+    "MAPE": 4.12,
+    "sMAPE": 4.12
+  },
+  "classification_baseline": {
+    "name": "Naive (congested now)",
+    "accuracy": 0.9478,
+    "f1": 0.6905,
+    "precision": 0.728,
+    "recall": 0.6567
   },
   "classification": {
     "XGBoost": {
-      "accuracy": 0.9078,
-      "f1": 0.6025,
-      "precision": 0.4493,
-      "recall": 0.9142
+      "accuracy": 0.9528,
+      "f1": 0.7305,
+      "precision": 0.7395,
+      "recall": 0.7218,
+      "threshold": 0.375
     },
     "RF": {
-      "accuracy": 0.929,
-      "f1": 0.6504,
-      "precision": 0.5215,
-      "recall": 0.8639
+      "accuracy": 0.9488,
+      "f1": 0.7253,
+      "precision": 0.6923,
+      "recall": 0.7617,
+      "threshold": 0.3
     }
   },
   "clustering": {
     "k": 2,
-    "silhouette": 0.446
+    "silhouette": 0.425
   },
   "counterfactual": [
     {
-      "name": "Rush hour signal optimization",
-      "description": "Smart traffic lights reduce rush-hour delays",
-      "baseline_score": 2.101,
-      "modified_score": 2.097,
-      "reduction_pct": 0.22
+      "name": "Peak spreading: rush trips at 14:00",
+      "description": "Rush-hour observations re-timed to 14:00 (flexible hours)",
+      "rows": 1689,
+      "baseline_score": 2.148,
+      "modified_score": 2.095,
+      "change_pct": -2.47
     },
     {
-      "name": "Weather resilience (clear conditions)",
-      "description": "Road infrastructure handles bad weather better",
-      "baseline_score": 2.101,
-      "modified_score": 2.102,
-      "reduction_pct": -0.02
+      "name": "Clear weather",
+      "description": "Precipitation and low visibility removed",
+      "rows": 6676,
+      "baseline_score": 2.119,
+      "modified_score": 2.118,
+      "change_pct": -0.04
     },
     {
-      "name": "10% prior congestion reduction",
-      "description": "Infrastructure improvements reduce upstream congestion",
-      "baseline_score": 2.101,
-      "modified_score": 1.898,
-      "reduction_pct": 9.67
+      "name": "Heavy rain (5 mm/h)",
+      "description": "Same moments under heavy rain",
+      "rows": 6676,
+      "baseline_score": 2.119,
+      "modified_score": 2.126,
+      "change_pct": 0.33
     },
     {
-      "name": "20% prior congestion reduction",
-      "description": "Major infrastructure overhaul (new lanes, bypasses)",
-      "baseline_score": 2.101,
-      "modified_score": 1.732,
-      "reduction_pct": 17.59
+      "name": "Persistence: +20% congestion now",
+      "description": "Share of a congestion shock that persists 30 min later",
+      "rows": 6676,
+      "baseline_score": 2.119,
+      "modified_score": 2.341,
+      "change_pct": 10.47
     }
   ],
   "data": {
-    "total_rows": 263921,
-    "train_rows": 211136,
-    "test_rows": 52785,
-    "segments": 594,
-    "features": 24,
+    "total_rows": 231575,
+    "train_rows": 186359,
+    "test_rows": 45216,
+    "segments": 410,
+    "segments_total": 594,
+    "features": 25,
     "date_range": "2026-04-05 \u2192 2026-06-12"
   },
   "feature_importance": [
     {
       "feature": "lag_1",
-      "importance": 0.46860671043395996
+      "importance": 0.3647211790084839
+    },
+    {
+      "feature": "slot_hist_mean",
+      "importance": 0.2677800953388214
     },
     {
       "feature": "rolling_mean_6",
-      "importance": 0.23142166435718536
-    },
-    {
-      "feature": "lag_2",
-      "importance": 0.044241033494472504
-    },
-    {
-      "feature": "is_night",
-      "importance": 0.03660206496715546
-    },
-    {
-      "feature": "hour_cos",
-      "importance": 0.017331797629594803
-    },
-    {
-      "feature": "hour_sin",
-      "importance": 0.017149491235613823
+      "importance": 0.13604508340358734
     },
     {
       "feature": "is_rush_hour",
-      "importance": 0.01683996059000492
+      "importance": 0.01672285795211792
+    },
+    {
+      "feature": "lag_2",
+      "importance": 0.016407575458288193
+    },
+    {
+      "feature": "is_night",
+      "importance": 0.014922075904905796
     },
     {
       "feature": "is_weekend",
-      "importance": 0.015077960677444935
+      "importance": 0.013952724635601044
     },
     {
-      "feature": "diff_2",
-      "importance": 0.013722254894673824
+      "feature": "hour_sin",
+      "importance": 0.01382506638765335
     },
     {
-      "feature": "hour",
-      "importance": 0.013602301478385925
+      "feature": "day_of_week",
+      "importance": 0.013675615191459656
+    },
+    {
+      "feature": "hour_cos",
+      "importance": 0.013164223171770573
     }
   ]
 }
