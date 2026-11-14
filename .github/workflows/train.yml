@@ -46,10 +46,25 @@ jobs:
             git commit -m "models: retrain $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           git push
 
-      - name: Push to HF Spaces
+      # HF Spaces free tier = 1 GB storage. Pushing full history accumulates
+      # every daily copy of data.csv + models (LFS) and hits the limit.
+      # So we push a single-commit snapshot (no history) and then squash the
+      # Space history to free old LFS objects. Full history stays on GitHub.
+      - name: Push to HF Spaces (snapshot, no history)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git remote add space https://Rakhymzhan:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Rakhymzhan/almaty-traffic || true
-          git push space main --force
+          git remote add space https://Rakhymzhan:${HF_TOKEN}@huggingface.co/spaces/Rakhymzhan/almaty-traffic || true
+          git checkout --orphan hf-snapshot
+          git commit -m "deploy: snapshot of ${GITHUB_SHA::7} ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
+          git push space hf-snapshot:main --force
+
+      - name: Squash HF Space history (free old LFS storage)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install -q huggingface_hub
+          python -c "from huggingface_hub import HfApi; HfApi().super_squash_history('Rakhymzhan/almaty-traffic', repo_type='space', branch='main')"
 
       - name: Trigger Render deploy
         run: |
