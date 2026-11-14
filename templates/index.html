@@ -735,8 +735,9 @@ async function predict() {
     el.style.display = 'block';
 
     const prob = data.congestion_probability || 0;
-    const cls = prob > 50 ? 'bg-high' : (prob > 20 ? 'bg-medium' : 'bg-low');
-    const scoreCls = prob > 50 ? 'score-high' : (prob > 20 ? 'score-medium' : 'score-low');
+    const lvl = data.risk === 'HIGH RISK' ? 'high' : (data.risk === 'MODERATE RISK' ? 'medium' : 'low');
+    const cls = `bg-${lvl}`;
+    const scoreCls = `score-${lvl}`;
     el.className = `pred-result ${cls}`;
 
     document.getElementById('pred-score').className = `score ${scoreCls}`;

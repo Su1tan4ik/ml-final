@@ -65,7 +65,11 @@ FEATURES = [
     'weather_precip_1h','is_low_visibility','weather_severity','rain_x_rush',
     'lat','lon','street_encoded','is_major_street','dist_from_center',
     'lag_1','lag_2','rolling_mean_6','rolling_std_6','diff_2',
+    'slot_hist_mean',
 ]
+FREE_FLOW = 1.5
+INACTIVE_FREE_SHARE = 0.99   # segment is "inactive" if ≥99% of its train observations are free-flow
+MIN_SEGMENT_OBS     = 50
 TARGET = 'traffic_score'
 
 plt.rcParams.update({
@@ -101,6 +105,19 @@ def save_model(obj, name):
 # =====================================================================
 #  1. LOAD & SPLIT
 # =====================================================================
+def add_slot_history(df):
+    """slot_hist_mean: mean score of the same segment in the same half-hour slot
+    (Almaty time) on PREVIOUS observations only (expanding mean, shifted by one)
+    → causal, no target leakage."""
+    ts = df['timestamp'] + pd.Timedelta(hours=5)
+    df['slot'] = ts.dt.hour * 2 + ts.dt.minute // 30
+    df = df.sort_values('timestamp')
+    df['slot_hist_mean'] = (df.groupby(['segment_id', 'slot'])['traffic_score']
+                              .transform(lambda s: s.shift(1).expanding().mean()))
+    df['slot_hist_mean'] = df['slot_hist_mean'].fillna(df['rolling_mean_6'])
+    return df
+
+
 def load_and_split(path, test_ratio=0.2):
     print('═'*60)
     print('  1. LOADING DATA')
@@ -110,17 +127,33 @@ def load_and_split(path, test_ratio=0.2):
     df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
 
     for col in FEATURES:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    df['traffic_score'] = pd.to_numeric(df['traffic_score'], errors='coerce')
 
     df = df.sort_values('timestamp').reset_index(drop=True)
-    cut = int(len(df) * (1 - test_ratio))
-    train, test = df.iloc[:cut].copy(), df.iloc[cut:].copy()
+    cut_time = df['timestamp'].iloc[int(len(df) * (1 - test_ratio))]
+
+    # Drop inactive segments (parks, mountains, fringe tiles): decided on the
+    # TRAIN period only so the test set does not influence the selection.
+    tr = df[df['timestamp'] < cut_time]
+    free_share = tr.groupby('segment_id')['traffic_score'].apply(lambda s: (s <= FREE_FLOW + 1e-4).mean())
+    n_obs = tr.groupby('segment_id').size()
+    active = free_share[(free_share < INACTIVE_FREE_SHARE) & (n_obs >= MIN_SEGMENT_OBS)].index
+    n_all = df['segment_id'].nunique()
+    df = df[df['segment_id'].isin(active)].copy()
+    print(f'  Segments   : {len(active)} active of {n_all} '
+          f'(dropped: ≥{INACTIVE_FREE_SHARE:.0%} free-flow or <{MIN_SEGMENT_OBS} obs in train period)')
+
+    df = add_slot_history(df).sort_values('timestamp').reset_index(drop=True)
+    train = df[df['timestamp'] < cut_time].copy()
+    test  = df[df['timestamp'] >= cut_time].copy()
 
     print(f'  Total rows : {len(df):,}')
     print(f'  Features   : {len(FEATURES)}')
     print(f'  Train      : {len(train):,}  ({train["timestamp"].min().date()} → {train["timestamp"].max().date()})')
     print(f'  Test       : {len(test):,}  ({test["timestamp"].min().date()} → {test["timestamp"].max().date()})')
-    return df, train, test
+    return df, train, test, {'active': len(active), 'total': n_all}
 
 
 # =====================================================================
@@ -206,6 +239,30 @@ def train_regression(train, test):
 # =====================================================================
 #  3. TRAIN CLASSIFICATION MODELS
 # =====================================================================
+def _cls_metrics(y, p, threshold=None):
+    d = {
+        'accuracy': round(accuracy_score(y, p), 4),
+        'f1': round(f1_score(y, p), 4),
+        'precision': round(precision_score(y, p, zero_division=0), 4),
+        'recall': round(recall_score(y, p, zero_division=0), 4),
+    }
+    if threshold is not None:
+        d['threshold'] = round(float(threshold), 3)
+    return d
+
+
+def _tune_threshold(make_model, X_tr, y_tr, val_ratio=0.15):
+    """Pick the probability threshold that maximises F1 on the last 15% of the
+    TRAIN period (time-ordered validation), then refit on the full train set."""
+    cut = int(len(X_tr) * (1 - val_ratio))
+    m = make_model().fit(X_tr.iloc[:cut], y_tr.iloc[:cut])
+    pv = m.predict_proba(X_tr.iloc[cut:])[:, 1]
+    ths = np.arange(0.10, 0.951, 0.025)
+    f1s = [f1_score(y_tr.iloc[cut:], pv >= t) for t in ths]
+    th = float(ths[int(np.argmax(f1s))])
+    return make_model().fit(X_tr, y_tr), th
+
+
 def train_classification(train, test):
     print('\n' + '═'*60)
     print('  3. TRAINING CLASSIFICATION MODELS')
@@ -223,21 +280,20 @@ def train_classification(train, test):
     cls_results = {}
     cls_preds   = {}
 
-    # 3a  XGBoost Classifier
+    # Naive baseline: "congested in 30 min if congested now"
+    naive = _cls_metrics(y_te, (test['lag_1'] > CONGESTION_THRESHOLD).astype(int))
+    print(f'\n  ▸ Naive baseline (lag_1 > {CONGESTION_THRESHOLD}): {naive}')
+
+    # 3a  XGBoost Classifier — no class re-weighting (it inflated recall at the
+    #     cost of precision); decision threshold tuned on validation instead.
     if HAS_XGB:
         print('\n  ▸ XGBoost Classifier')
-        ratio = (y_tr == 0).sum() / max((y_tr == 1).sum(), 1)
-        xgb_c = xgb.XGBClassifier(
-            n_estimators=200, max_depth=6, learning_rate=0.05,
-            scale_pos_weight=ratio, random_state=42, n_jobs=-1)
-        xgb_c.fit(X_tr, y_tr)
-        p = xgb_c.predict(X_te)
-        cls_results['XGBoost'] = {
-            'accuracy': round(accuracy_score(y_te, p), 4),
-            'f1': round(f1_score(y_te, p), 4),
-            'precision': round(precision_score(y_te, p, zero_division=0), 4),
-            'recall': round(recall_score(y_te, p, zero_division=0), 4),
-        }
+        xgb_c, th = _tune_threshold(
+            lambda: xgb.XGBClassifier(n_estimators=200, max_depth=6, learning_rate=0.05,
+                                      random_state=42, n_jobs=-1),
+            X_tr, y_tr)
+        p = (xgb_c.predict_proba(X_te)[:, 1] >= th).astype(int)
+        cls_results['XGBoost'] = _cls_metrics(y_te, p, th)
         cls_models['XGBoost'] = xgb_c; cls_preds['XGBoost'] = p
         print(f'    {cls_results["XGBoost"]}')
         save_model(xgb_c, 'xgb_classifier')
@@ -245,22 +301,17 @@ def train_classification(train, test):
 
     # 3b  Random Forest Classifier
     print('  ▸ Random Forest Classifier')
-    rf_c = RandomForestClassifier(
-        n_estimators=200, max_depth=12, class_weight='balanced',
-        random_state=42, n_jobs=-1)
-    rf_c.fit(X_tr, y_tr)
-    p = rf_c.predict(X_te)
-    cls_results['RF'] = {
-        'accuracy': round(accuracy_score(y_te, p), 4),
-        'f1': round(f1_score(y_te, p), 4),
-        'precision': round(precision_score(y_te, p, zero_division=0), 4),
-        'recall': round(recall_score(y_te, p, zero_division=0), 4),
-    }
+    rf_c, th = _tune_threshold(
+        lambda: RandomForestClassifier(n_estimators=200, max_depth=12,
+                                       random_state=42, n_jobs=-1),
+        X_tr, y_tr)
+    p = (rf_c.predict_proba(X_te)[:, 1] >= th).astype(int)
+    cls_results['RF'] = _cls_metrics(y_te, p, th)
     cls_models['RF'] = rf_c; cls_preds['RF'] = p
     print(f'    {cls_results["RF"]}')
     save_model(rf_c, 'rf_classifier')
 
-    return cls_models, cls_results, cls_preds, y_te
+    return cls_models, cls_results, cls_preds, y_te, naive
 
 
 # =====================================================================
@@ -361,65 +412,117 @@ def run_clustering(df):
 # =====================================================================
 #  6. COUNTERFACTUAL SIMULATIONS
 # =====================================================================
+def _set_hour(X, hour):
+    X['hour'] = hour
+    X['hour_sin'] = np.sin(2 * np.pi * hour / 24)
+    X['hour_cos'] = np.cos(2 * np.pi * hour / 24)
+    X['is_rush_hour'] = int(hour in (7, 8, 9, 17, 18, 19))
+    X['is_night'] = int(hour in (0, 1, 2, 3, 4, 5, 23))
+    X['rain_x_rush'] = X['weather_precip_1h'] * X['is_rush_hour']
+
+
 def run_counterfactuals(model, test_df):
+    """What-if analysis on the trained model (associational, not causal).
+    Only exogenous inputs are changed (time, weather); the current traffic
+    state (lags) is kept fixed, so the result is the model's estimate of the
+    *direct* effect of that factor. A separate 'persistence' scenario
+    measures how much of a congestion shock carries over to the next 30 min."""
     print('\n' + '═'*60)
     print('  6. COUNTERFACTUAL SIMULATIONS')
     print('═'*60)
 
-    busy = test_df[test_df[TARGET] > 1.8].copy()
-    X = busy[FEATURES].fillna(0)
-    baseline = model.predict(X)
-    base_mean = baseline.mean()
+    busy = test_df[test_df[TARGET] > 1.8]
+    rush = busy[busy['is_rush_hour'] == 1]
+
+    def scenario_rush_to_offpeak(X):  _set_hour(X, 14)
+    def scenario_clear(X):
+        X['weather_precip_1h'] = 0; X['is_low_visibility'] = 0
+        X['weather_severity'] = 0;  X['rain_x_rush'] = 0
+    def scenario_heavy_rain(X):
+        X['weather_precip_1h'] = 5.0; X['weather_severity'] = 2
+        X['rain_x_rush'] = 5.0 * X['is_rush_hour']
+    def scenario_shock(X):
+        for c in ['lag_1', 'lag_2', 'rolling_mean_6']:
+            X[c] = X[c] * 1.2
 
     scenarios = [
-        {
-            'name': 'Rush hour signal optimization',
-            'description': 'Smart traffic lights reduce rush-hour delays',
-            'changes': {'is_rush_hour': 0},
-        },
-        {
-            'name': 'Weather resilience (clear conditions)',
-            'description': 'Road infrastructure handles bad weather better',
-            'changes': {'is_low_visibility': 0, 'weather_severity': 0, 'rain_x_rush': 0},
-        },
-        {
-            'name': '10% prior congestion reduction',
-            'description': 'Infrastructure improvements reduce upstream congestion',
-            'changes': {'lag_1': 0.9, 'lag_2': 0.9, 'rolling_mean_6': 0.9},
-            'mode': 'multiply',
-        },
-        {
-            'name': '20% prior congestion reduction',
-            'description': 'Major infrastructure overhaul (new lanes, bypasses)',
-            'changes': {'lag_1': 0.8, 'lag_2': 0.8, 'rolling_mean_6': 0.8},
-            'mode': 'multiply',
-        },
+        ('Peak spreading: rush trips at 14:00', 'Rush-hour observations re-timed to 14:00 (flexible hours)', rush, scenario_rush_to_offpeak),
+        ('Clear weather', 'Precipitation and low visibility removed', busy, scenario_clear),
+        ('Heavy rain (5 mm/h)', 'Same moments under heavy rain', busy, scenario_heavy_rain),
+        ('Persistence: +20% congestion now', 'Share of a congestion shock that persists 30 min later', busy, scenario_shock),
     ]
 
     results = []
-    for s in scenarios:
-        X_mod = X.copy()
-        mode = s.get('mode', 'set')
-        for feat, val in s['changes'].items():
-            if feat in X_mod.columns:
-                if mode == 'multiply':
-                    X_mod[feat] = X_mod[feat] * val
-                else:
-                    X_mod[feat] = val
-
-        modified = model.predict(X_mod)
-        reduction = (base_mean - modified.mean()) / base_mean * 100
-
+    for name, desc, subset, fn in scenarios:
+        X = subset[FEATURES].fillna(0).copy()
+        if len(X) == 0:
+            continue
+        base = model.predict(X).mean()
+        X_mod = X.copy(); fn(X_mod)
+        mod = model.predict(X_mod).mean()
+        change = (mod - base) / base * 100
         results.append({
-            'name': s['name'],
-            'description': s['description'],
-            'baseline_score': round(float(base_mean), 3),
-            'modified_score': round(float(modified.mean()), 3),
-            'reduction_pct': round(float(reduction), 2),
+            'name': name, 'description': desc, 'rows': int(len(X)),
+            'baseline_score': round(float(base), 3),
+            'modified_score': round(float(mod), 3),
+            'change_pct': round(float(change), 2),
         })
-        print(f'  {s["name"]}: {reduction:+.2f}% change')
+        print(f'  {name}: {change:+.2f}%  (n={len(X):,})')
 
     return results
+
+
+def build_streets(df):
+    """Hotspot table: one row per street, impact = total excess congestion
+    (sum over the street's zones of mean score above free-flow)."""
+    seg = df.groupby('segment_id').agg(
+        street=('street_corrected', 'first'), lat=('lat', 'first'), lon=('lon', 'first'),
+        mean_score=('traffic_score', 'mean'), max_score=('traffic_score', 'max')).reset_index()
+    seg = seg[seg['street'].fillna('').str.strip() != '']
+    # Nominatim sometimes returns a district instead of a street — not a hotspot street
+    seg = seg[~seg['street'].str.contains('район', case=False)]
+    seg['excess'] = (seg['mean_score'] - FREE_FLOW).clip(lower=0)
+    st = seg.groupby('street').agg(
+        lat=('lat', 'mean'), lon=('lon', 'mean'),
+        mean_score=('mean_score', 'mean'), max_score=('max_score', 'max'),
+        segments=('segment_id', 'count'), impact_score=('excess', 'sum')).reset_index()
+    st['impact_score'] = (st['impact_score'] * 10).round(3)
+    return st.sort_values('impact_score', ascending=False)
+
+
+def _tile_bounds(seg_id):
+    """Exact lat/lon bounds of a slippy-map tile id like 'z15_x23376_y11999'."""
+    z, x, y = (int(p[1:]) for p in seg_id.split('_'))
+    n = 2 ** z
+    lon1, lon2 = x / n * 360 - 180, (x + 1) / n * 360 - 180
+    lat = lambda yy: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * yy / n))))
+    return [[round(lat(y + 1), 5), round(lon1, 5)], [round(lat(y), 5), round(lon2, 5)]], z
+
+
+def build_map_data(df):
+    """static/map_data.json for the Leaflet map: one rectangle per active
+    segment (its real tile), mean score per Almaty hour."""
+    df = df.copy()
+    df['hour_alm'] = (df['timestamp'].dt.hour + 5) % 24
+    seg = df.groupby('segment_id').agg(lat=('lat', 'first'), lon=('lon', 'first'),
+                                       mean=('traffic_score', 'mean'), max=('traffic_score', 'max'))
+    hourly = df.groupby(['segment_id', 'hour_alm'])['traffic_score'].mean().round(2)
+    grid, hourly_out = [], {}
+    for sid, r in seg.iterrows():
+        bounds, z = _tile_bounds(sid)
+        grid.append({'id': sid, 'bounds': bounds, 'zoom': z,
+                     'lat': round(float(r['lat']), 4), 'lon': round(float(r['lon']), 4),
+                     'mean': round(float(r['mean']), 2), 'max': round(float(r['max']), 2),
+                     'has_data': True})
+        hourly_out[sid] = {str(int(h)): float(v) for h, v in hourly.loc[sid].items()}
+    grid.sort(key=lambda c: c['zoom'])   # draw coarse z14 tiles first, finer z15 on top
+    return {
+        'grid': grid, 'hourly': hourly_out,
+        'available_hours': sorted(int(h) for h in df['hour_alm'].unique()),
+        'data_info': {'total_rows': int(len(df)), 'segments': int(len(seg)),
+                      'date_start': str(df['timestamp'].min().date()),
+                      'date_end': str(df['timestamp'].max().date())},
+    }
 
 
 # =====================================================================
@@ -585,11 +688,11 @@ def generate_plots(reg_results, reg_preds, y_test_reg,
     # ── Plot 11: Counterfactual ──
     fig, ax = plt.subplots(figsize=(12, 5))
     cf_names = [r['name'] for r in cf_results]
-    cf_vals  = [r['reduction_pct'] for r in cf_results]
-    colors_cf = ['#4CAF50' if v > 0 else '#F44336' for v in cf_vals]
+    cf_vals  = [r['change_pct'] for r in cf_results]
+    colors_cf = ['#4CAF50' if v < 0 else '#F44336' for v in cf_vals]
     bars = ax.barh(cf_names, cf_vals, color=colors_cf, alpha=0.8)
-    ax.set_title('Predicted Congestion Reduction by Intervention')
-    ax.set_xlabel('Reduction (%)'); ax.axvline(0, color='black', lw=0.8)
+    ax.set_title('What-if: change in predicted traffic score (model-based, not causal)')
+    ax.set_xlabel('Change in predicted score (%)  — green = less congestion'); ax.axvline(0, color='black', lw=0.8)
     for b, v in zip(bars, cf_vals):
         ax.text(b.get_width() + 0.1, b.get_y() + b.get_height()/2,
                 f'{v:+.2f}%', va='center', fontweight='bold')
@@ -619,13 +722,13 @@ def main():
     print('╚' + '═'*58 + '╝\n')
 
     # 1. Load
-    df, train, test = load_and_split(DATA_PATH)
+    df, train, test, seg_info = load_and_split(DATA_PATH)
 
     # 2. Regression
     reg_models, reg_results, reg_preds, y_test_reg, baseline = train_regression(train, test)
 
     # 3. Classification
-    cls_models, cls_results, cls_preds, y_test_cls = train_classification(train, test)
+    cls_models, cls_results, cls_preds, y_test_cls, cls_naive = train_classification(train, test)
 
     # 4. Explainability
     best_key = 'XGBoost' if 'XGBoost' in reg_models else list(reg_models.keys())[0]
@@ -649,6 +752,7 @@ def main():
     report = {
         'regression': reg_results,
         'baseline': {'name': 'Naive (last value)', **baseline},
+        'classification_baseline': {'name': 'Naive (congested now)', **cls_naive},
         'classification': cls_results,
         'clustering': {'k': best_k, 'silhouette': sils[best_k]},
         'counterfactual': cf_results,
@@ -657,6 +761,7 @@ def main():
             'train_rows': len(train),
             'test_rows': len(test),
             'segments': int(df['segment_id'].nunique()),
+            'segments_total': seg_info['total'],
             'features': len(FEATURES),
             'date_range': f'{df["timestamp"].min().date()} → {df["timestamp"].max().date()}',
         },
@@ -682,8 +787,15 @@ def main():
     seg_data = seg_data.merge(cluster_agg[['segment_id','cluster']], on='segment_id', how='left')
     seg_data.to_csv(os.path.join(MODEL_DIR, 'segments.csv'), index=False)
 
+    # Hotspots table + map grid (regenerated on every retrain)
+    build_streets(df).to_csv(os.path.join(MODEL_DIR, 'streets.csv'), index=False)
+    os.makedirs('static', exist_ok=True)
+    with open(os.path.join('static', 'map_data.json'), 'w') as f:
+        json.dump(build_map_data(df), f, ensure_ascii=False)
+
     # Save feature list
-    json.dump({'features': FEATURES, 'target': TARGET, 'threshold': CONGESTION_THRESHOLD},
+    json.dump({'features': FEATURES, 'target': TARGET, 'threshold': CONGESTION_THRESHOLD,
+               'cls_proba_threshold': cls_results.get('XGBoost', {}).get('threshold', 0.5)},
               open(os.path.join(MODEL_DIR, 'config.json'), 'w'), indent=2)
 
     elapsed = time.time() - t0

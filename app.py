@@ -21,7 +21,9 @@ MODEL_DIR = BASE_DIR / "models"
 DATA_PATH = BASE_DIR / "data.csv"
 
 FEATURES = json.load(open(MODEL_DIR / 'config.json'))['features']
-THRESHOLD = json.load(open(MODEL_DIR / 'config.json'))['threshold']
+CONFIG = json.load(open(MODEL_DIR / 'config.json'))
+THRESHOLD = CONFIG['threshold']
+CLS_PROBA_THRESHOLD = float(CONFIG.get('cls_proba_threshold', 0.5))  # tuned on validation in train.py
 
 xgb_reg = pickle.load(open(MODEL_DIR / 'xgb_regressor.pkl', 'rb'))
 xgb_cls = pickle.load(open(MODEL_DIR / 'xgb_classifier.pkl', 'rb'))
@@ -39,7 +41,11 @@ hourly_lookup = pd.read_csv(hourly_lookup_path) if hourly_lookup_path.exists() e
 
 df = pd.read_csv(DATA_PATH, low_memory=False)
 df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+# keep only active segments (same selection as train.py → models/segments.csv)
+df = df[df['segment_id'].isin(set(segments['segment_id']))].copy()
 for col in FEATURES:
+    if col not in df.columns:   # derived in train.py (e.g. slot_hist_mean)
+        continue
     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 print(f"Loaded: {len(df)} rows, {df['segment_id'].nunique()} segments")
@@ -48,6 +54,11 @@ print(f"Loaded: {len(df)} rows, {df['segment_id'].nunique()} segments")
 # Half-hour slot in Almaty time (0..47) and weekday/weekend group.
 _ts_alm = df['timestamp'] + pd.Timedelta(hours=5)
 df['_slot'] = _ts_alm.dt.hour * 2 + _ts_alm.dt.minute // 30
+# slot_hist_mean — same causal definition as train.add_slot_history
+df = df.sort_values('timestamp')
+df['slot_hist_mean'] = (df.groupby(['segment_id', '_slot'])['traffic_score']
+                          .transform(lambda s: s.shift(1).expanding().mean()))
+df['slot_hist_mean'] = df['slot_hist_mean'].fillna(df['rolling_mean_6'])
 SLOT_PROFILE = (df.groupby(['segment_id', 'is_weekend', '_slot'])['traffic_score']
                   .mean().to_dict())
 SLOT_PROFILE_ALL = df.groupby(['segment_id', '_slot'])['traffic_score'].mean().to_dict()
@@ -65,7 +76,7 @@ FEATURE_GROUPS = {
     'weather':  ['weather_temp_c', 'weather_humidity', 'weather_wind_ms', 'weather_precip_1h',
                  'is_low_visibility', 'weather_severity', 'rain_x_rush'],
     'spatial':  ['lat', 'lon', 'is_major_street', 'dist_from_center', 'street_encoded'],
-    'history':  ['lag_1', 'lag_2', 'rolling_mean_6', 'rolling_std_6', 'diff_1', 'diff_2'],
+    'history':  ['lag_1', 'lag_2', 'rolling_mean_6', 'rolling_std_6', 'diff_1', 'diff_2', 'slot_hist_mean'],
 }
 
 FEAT_RU = {
@@ -79,6 +90,7 @@ FEAT_RU = {
     'lag_1': 'трафик 30 мин назад', 'lag_2': 'трафик 1 час назад',
     'rolling_mean_6': 'среднее за 3 часа', 'rolling_std_6': 'волатильность трафика',
     'diff_1': 'изменение трафика', 'diff_2': 'тренд трафика (lag_1 − lag_2)',
+    'slot_hist_mean': 'типичный трафик в это время',
 }
 
 GROUP_RU = {
@@ -362,6 +374,7 @@ def _build_features(seg, hour, day, temp, precip):
         'lag_1': prev[0], 'lag_2': prev[1],
         'rolling_mean_6': float(np.mean(prev)), 'rolling_std_6': float(np.std(prev)),
         'diff_1': prev[0] - prev[1], 'diff_2': prev[0] - prev[1],
+        'slot_hist_mean': float(SLOT_PROFILE_ALL.get((seg_id, slot % 48), st['seg_mean'])),
     }
     return pd.DataFrame([[row[f] for f in FEATURES]], columns=FEATURES)
 
@@ -386,7 +399,8 @@ def api_predict(lat:float=Query(43.265),lon:float=Query(76.945),
 
     level = 'Low' if predicted_score<=2 else ('Medium' if predicted_score<=3 else 'High')
     speed = round(65-(min(max(predicted_score,1),10)-1)*(65-3)/9, 1)
-    risk = 'HIGH RISK' if congestion_prob>50 else ('MODERATE RISK' if congestion_prob>20 else 'LOW RISK')
+    th = CLS_PROBA_THRESHOLD * 100
+    risk = 'HIGH RISK' if congestion_prob >= th else ('MODERATE RISK' if congestion_prob >= th / 2 else 'LOW RISK')
     return {"predicted_score":round(predicted_score,2),
         "predicted_max":round(float(nearest['max_score']),2),
         "congestion_probability":round(congestion_prob,1),"risk":risk,"level":level,
@@ -394,7 +408,7 @@ def api_predict(lat:float=Query(43.265),lon:float=Query(76.945),
         "zone_stats":{"mean":round(float(nearest['mean_score']),2),"max":round(float(nearest['max_score']),2)},
         "rain_effect":rain_effect,
         "nearest_street":str(nearest.get('street','')),
-        "model":{"regressor":"XGBoost","classifier":"XGBoost",
+        "model":{"regressor":"XGBoost","classifier":"XGBoost","decision_threshold":round(th,1),
                  "lags":"typical history of this zone for the preceding 3 h"},
         "input":{"lat":lat,"lon":lon,"hour":hour,"day":day,"temp":temp,"precip":precip}}
 
