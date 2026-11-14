@@ -193,7 +193,7 @@ input,select{width:100%;padding:8px 12px;background:var(--bg);border:1px solid v
   <!-- MAP -->
   <div id="map-panel" class="panel">
     <div class="card">
-      <h3>🗺 Almaty Traffic Grid (220 zones, ~1×1 km)</h3>
+      <h3>🗺 Almaty Traffic Grid (~1×1 km zones)</h3>
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
         <label style="margin:0;color:var(--text)">Hour (Almaty):</label>
         <input type="range" id="hour-slider" min="0" max="23" value="18" style="flex:1;min-width:200px;accent-color:var(--accent)">
@@ -334,7 +334,7 @@ input,select{width:100%;padding:8px 12px;background:var(--bg);border:1px solid v
     <div class="card" style="margin-bottom:0">
       <h3>💡 Infrastructure Recommendations — на основе ML-анализа трафика</h3>
       <p style="color:var(--muted);font-size:0.85rem;margin-top:4px">
-        Система анализирует 220 дорожных сегментов и генерирует конкретные рекомендации
+        Система анализирует все дорожные сегменты и генерирует конкретные рекомендации
         по оптимизации светофоров и расширению дорог там, где данные показывают хроническую перегрузку.
       </p>
     </div>
@@ -467,14 +467,15 @@ async function loadDashboard() {
       fetch(`${API}/api/report`).then(r=>r.json()),
     ]);
 
-    // Stats bar
+    // Stats bar — classification metrics come from report.json (XGBoost = model used by /api/predict)
+    const clsBest = (report.classification || {}).XGBoost || Object.values(report.classification || {})[0];
     document.getElementById('stats-bar').innerHTML = `
       <div class="stat"><div class="value">${summary.segments}</div><div class="label">Traffic Zones</div></div>
       <div class="stat"><div class="value">${(summary.rows/1000).toFixed(1)}K</div><div class="label">Observations</div></div>
       <div class="stat"><div class="value">${summary.max_score}</div><div class="label">Max Score</div></div>
       <div class="stat"><div class="value">${summary.congested_pct}%</div><div class="label">Congested</div></div>
-      <div class="stat"><div class="value">99.4%</div><div class="label">Detection Accuracy</div></div>
-      <div class="stat"><div class="value">0.97</div><div class="label">F1 Score</div></div>
+      <div class="stat"><div class="value">${clsBest ? (clsBest.accuracy*100).toFixed(1)+'%' : '—'}</div><div class="label">Detection Accuracy</div></div>
+      <div class="stat"><div class="value">${clsBest ? clsBest.f1.toFixed(2) : '—'}</div><div class="label">F1 Score</div></div>
     `;
 
     // Hourly chart
@@ -536,6 +537,15 @@ async function loadDashboard() {
       regHtml += `<div class="metric-row"><span class="metric-name">RMSE</span><span class="metric-val">${m.RMSE}</span></div>`;
       regHtml += `<div class="metric-row"><span class="metric-name">R²</span><span class="metric-val">${m.R2}</span></div>`;
       regHtml += `<div class="metric-row"><span class="metric-name">MAPE</span><span class="metric-val">${m.MAPE}%</span></div>`;
+      regHtml += `</div>`;
+    }
+    const bl = report.baseline;
+    if (bl) {
+      regHtml += `<div style="margin-bottom:12px;opacity:0.75"><h4 style="color:var(--muted)">${bl.name} — baseline</h4>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">MAE</span><span class="metric-val">${bl.MAE}</span></div>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">RMSE</span><span class="metric-val">${bl.RMSE}</span></div>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">R²</span><span class="metric-val">${bl.R2}</span></div>`;
+      regHtml += `<div class="metric-row"><span class="metric-name">MAPE</span><span class="metric-val">${bl.MAPE}%</span></div>`;
       regHtml += `</div>`;
     }
     document.getElementById('reg-metrics').innerHTML = regHtml;
@@ -725,8 +735,8 @@ async function predict() {
     el.style.display = 'block';
 
     const prob = data.congestion_probability || 0;
-    const cls = prob > 30 ? 'bg-high' : (prob > 10 ? 'bg-medium' : 'bg-low');
-    const scoreCls = prob > 30 ? 'score-high' : (prob > 10 ? 'score-medium' : 'score-low');
+    const cls = prob > 50 ? 'bg-high' : (prob > 20 ? 'bg-medium' : 'bg-low');
+    const scoreCls = prob > 50 ? 'score-high' : (prob > 20 ? 'score-medium' : 'score-low');
     el.className = `pred-result ${cls}`;
 
     document.getElementById('pred-score').className = `score ${scoreCls}`;
@@ -734,10 +744,10 @@ async function predict() {
     document.getElementById('pred-level').textContent = `${data.risk} — Congestion Probability`;
     document.getElementById('pred-details').innerHTML =
       `Zone: <b>${data.nearest_street}</b><br>` +
-      `Predicted score: ${data.predicted_score} (max possible: ${data.predicted_max})<br>` +
+      `Predicted score (XGBoost): <b>${data.predicted_score}</b> | Zone historical max: ${data.predicted_max}<br>` +
       `Speed estimate: ${data.speed_estimate_kmh} km/h | ` +
       `Zone avg: ${data.zone_stats.mean} | Zone max: ${data.zone_stats.max}<br>` +
-      (data.rain_effect !== 'none' ? `🌧 Rain effect: ${data.rain_effect}` : '☀ No rain effect');
+      (data.rain_effect !== 'none' ? `🌧 Rain effect (model): ${data.rain_effect}` : '☀ No precipitation');
   } catch(e) { console.error('Predict error:', e); }
 }
 

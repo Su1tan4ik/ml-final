@@ -22,6 +22,7 @@ STAGING_PATH   = os.environ.get("STAGING_PATH",   "data/staging.csv")
 PROCESSED_PATH = os.environ.get("PROCESSED_PATH", "data.csv")
 LAG_GAP_MINUTES  = 45
 LAG_HISTORY_ROWS = 50   # rows per segment from data.csv used as lag context
+FREE_FLOW_SCORE  = 1.5  # minimum traffic score (all roads green)
 
 ALMATY_CENTER = (43.2565, 76.9286)
 
@@ -158,10 +159,18 @@ def add_lag_features(new_df, history_df=None):
     wrk["diff_2"]         = wrk["lag_1"] - wrk["lag_2"]
     wrk["lag_momentum"]   = wrk["lag_1"] - wrk["lag_2"]
 
-    result = wrk[wrk["_is_new"] == True].drop(columns=["_is_new"]).copy()
+    # Causal fallback for missing lags: mean of the segment's PAST scores only
+    # (expanding mean shifted by one row). The previous version filled gaps with
+    # the segment mean of the whole batch, which included the current target
+    # value → target leakage. If a segment has no past at all, use the
+    # free-flow floor score (1.5).
+    past_mean = (
+        wrk.groupby("segment_id")["traffic_score"]
+        .transform(lambda s: s.shift(1).expanding().mean())
+    )
+    wrk["segment_historical_avg"] = past_mean.fillna(FREE_FLOW_SCORE)
 
-    seg_avg = result.groupby("segment_id")["traffic_score"].transform("mean")
-    result["segment_historical_avg"] = seg_avg
+    result = wrk[wrk["_is_new"] == True].drop(columns=["_is_new"]).copy()
 
     for col in ["lag_1", "lag_2", "lag_48", "rolling_mean_6"]:
         result[col] = result[col].fillna(result["segment_historical_avg"])
@@ -271,5 +280,23 @@ def run():
     # ── 5. Clear staging (only after successful append) ───────────────
     clear_staging(staging_path)
 
+LAG_COLS = ["segment_historical_avg", "lag_1", "lag_2", "lag_48", "rolling_mean_6",
+            "rolling_std_6", "rolling_max_6", "diff_1", "diff_2", "lag_momentum"]
+
+def rebuild_lags():
+    """Recompute all lag/rolling features over the full data.csv (one-off fix
+    for rows written by older versions of this script)."""
+    proc_path = Path(PROCESSED_PATH)
+    df = pd.read_csv(proc_path, low_memory=False)
+    cols = df.columns.tolist()
+    print(f"Rebuilding lag features for {len(df):,} rows in {proc_path}")
+    df = add_lag_features(df.drop(columns=[c for c in LAG_COLS if c in df.columns]))
+    df = df.sort_values(["timestamp", "segment_id"])[cols]
+    df.to_csv(proc_path, index=False)
+    print("Done.")
+
 if __name__ == "__main__":
-    run()
+    if "--rebuild-lags" in sys.argv:
+        rebuild_lags()
+    else:
+        run()

@@ -6,7 +6,7 @@ Students: Demessinov Rakhymzhan (23B031273), Kuantayev Sultan (23B031521)
 
 This script:
   1. Loads preprocessed traffic data
-  2. Trains 4 regression models + 2 classification models
+  2. Trains 3 regression models (+ naive baseline) + 2 classification models
   3. Evaluates all models with proper metrics
   4. Runs SHAP explainability analysis
   5. Performs K-Means clustering
@@ -138,6 +138,10 @@ def train_regression(train, test):
     results = {}
     preds   = {}
 
+    # 2.0  Naive baseline: "traffic in 30 min = traffic now" (lag_1)
+    baseline = regression_metrics(y_te.values, test['lag_1'].values)
+    print(f'\n  ▸ Naive baseline (last value): {baseline}')
+
     # 2a  Random Forest
     print('\n  ▸ Random Forest')
     rf = RandomForestRegressor(
@@ -196,7 +200,7 @@ def train_regression(train, test):
     best = min(results, key=lambda k: results[k]['MAE'])
     print(f'\n  ★ Best regression model: {best}  (MAE = {results[best]["MAE"]})')
 
-    return models, results, preds, y_te
+    return models, results, preds, y_te, baseline
 
 
 # =====================================================================
@@ -618,7 +622,7 @@ def main():
     df, train, test = load_and_split(DATA_PATH)
 
     # 2. Regression
-    reg_models, reg_results, reg_preds, y_test_reg = train_regression(train, test)
+    reg_models, reg_results, reg_preds, y_test_reg, baseline = train_regression(train, test)
 
     # 3. Classification
     cls_models, cls_results, cls_preds, y_test_cls = train_classification(train, test)
@@ -644,6 +648,7 @@ def main():
     # 8. Save report
     report = {
         'regression': reg_results,
+        'baseline': {'name': 'Naive (last value)', **baseline},
         'classification': cls_results,
         'clustering': {'k': best_k, 'silhouette': sils[best_k]},
         'counterfactual': cf_results,

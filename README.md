@@ -68,13 +68,21 @@ Data Collection → Preprocessing → Feature Engineering → ML Models → API 
 
 | Model | MAE | R² | MAPE |
 |---|---|---|---|
-| Naive baseline (last value) | 0.063 | 0.724 | — |
-| Random Forest | 0.0623 | 0.778 | 3.40% |
-| XGBoost | 0.0627 | 0.779 | 3.41% |
-| MLP Neural Net | 0.0811 | 0.543 | 4.55% |
+| Naive baseline (last value) | 0.0666 | 0.707 | 3.58% |
+| Random Forest | 0.0655 | 0.762 | 3.57% |
+| XGBoost | 0.0648 | 0.766 | 3.53% |
+| MLP Neural Net | 0.0788 | 0.678 | 4.39% |
 
-> An earlier version reported R² ≈ 0.99 because the `diff_1` feature included the current target value (data leakage). It was replaced with `diff_2` (difference between the two previous values), and models are now compared with a naive last-value baseline.
-**Classification (Congestion Detection):** XGBoost Accuracy=99.4%, F1=0.975
+> An earlier version reported R² ≈ 0.99 because the `diff_1` feature included the current target value (data leakage). It was replaced with `diff_2` (difference between the two previous values). A second leak was fixed later: missing lags were filled with the segment mean computed *including the current row*; they are now filled with the mean of the segment's **past** values only (`scripts/feature_engineering.py --rebuild-lags`). Models are compared with a naive last-value baseline: XGBoost improves R² from 0.707 to 0.766 and MAE by ~3%.
+
+**Classification (congestion detection, score > 2.0, ~10% positive class):**
+
+| Model | Accuracy | F1 | Precision | Recall |
+|---|---|---|---|---|
+| XGBoost | 90.8% | 0.60 | 0.45 | 0.91 |
+| Random Forest | 92.9% | 0.65 | 0.52 | 0.86 |
+
+Accuracy is inflated by class imbalance; F1/precision are the meaningful metrics. `/api/predict` uses the XGBoost regressor + classifier.
 
 ## API Endpoints
 

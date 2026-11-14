@@ -24,7 +24,7 @@ FEATURES = json.load(open(MODEL_DIR / 'config.json'))['features']
 THRESHOLD = json.load(open(MODEL_DIR / 'config.json'))['threshold']
 
 xgb_reg = pickle.load(open(MODEL_DIR / 'xgb_regressor.pkl', 'rb'))
-rf_cls  = pickle.load(open(MODEL_DIR / 'xgb_classifier.pkl', 'rb'))
+xgb_cls = pickle.load(open(MODEL_DIR / 'xgb_classifier.pkl', 'rb'))
 report  = json.load(open(MODEL_DIR / 'report.json'))
 segments = pd.read_csv(MODEL_DIR / 'segments.csv')
 
@@ -44,13 +44,28 @@ for col in FEATURES:
 
 print(f"Loaded: {len(df)} rows, {df['segment_id'].nunique()} segments")
 
+# ── Per-segment profiles used to build model inputs for /api/predict ──
+# Half-hour slot in Almaty time (0..47) and weekday/weekend group.
+_ts_alm = df['timestamp'] + pd.Timedelta(hours=5)
+df['_slot'] = _ts_alm.dt.hour * 2 + _ts_alm.dt.minute // 30
+SLOT_PROFILE = (df.groupby(['segment_id', 'is_weekend', '_slot'])['traffic_score']
+                  .mean().to_dict())
+SLOT_PROFILE_ALL = df.groupby(['segment_id', '_slot'])['traffic_score'].mean().to_dict()
+SEG_STATIC = (df.groupby('segment_id')
+                .agg(street_encoded=('street_encoded', 'first'),
+                     is_major_street=('is_major_street', 'first'),
+                     dist_from_center=('dist_from_center', 'first'),
+                     seg_mean=('traffic_score', 'mean'))
+                .to_dict('index'))
+WEATHER_MEDIAN = {c: float(df[c].median()) for c in ['weather_humidity', 'weather_wind_ms']}
+
 # ── SHAP setup ──
 FEATURE_GROUPS = {
     'temporal': ['hour', 'hour_sin', 'hour_cos', 'is_rush_hour', 'is_night', 'day_of_week', 'is_weekend'],
     'weather':  ['weather_temp_c', 'weather_humidity', 'weather_wind_ms', 'weather_precip_1h',
                  'is_low_visibility', 'weather_severity', 'rain_x_rush'],
     'spatial':  ['lat', 'lon', 'is_major_street', 'dist_from_center', 'street_encoded'],
-    'history':  ['lag_1', 'lag_2', 'rolling_mean_6', 'rolling_std_6', 'diff_1'],
+    'history':  ['lag_1', 'lag_2', 'rolling_mean_6', 'rolling_std_6', 'diff_1', 'diff_2'],
 }
 
 FEAT_RU = {
@@ -63,7 +78,7 @@ FEAT_RU = {
     'dist_from_center': 'удалённость от центра', 'street_encoded': 'улица',
     'lag_1': 'трафик 30 мин назад', 'lag_2': 'трафик 1 час назад',
     'rolling_mean_6': 'среднее за 3 часа', 'rolling_std_6': 'волатильность трафика',
-    'diff_1': 'изменение трафика',
+    'diff_1': 'изменение трафика', 'diff_2': 'тренд трафика (lag_1 − lag_2)',
 }
 
 GROUP_RU = {
@@ -312,34 +327,75 @@ async def api_report():
 async def api_features():
     return report.get('feature_importance', [])
 
+def _typical_score(seg_id, weekend, slot):
+    """Typical historical score of a segment in a given half-hour slot."""
+    slot %= 48
+    v = SLOT_PROFILE.get((seg_id, weekend, slot))
+    if v is None:
+        v = SLOT_PROFILE_ALL.get((seg_id, slot))
+    if v is None:
+        v = SEG_STATIC[seg_id]['seg_mean']
+    return float(v)
+
+def _build_features(seg, hour, day, temp, precip):
+    """Model input for (segment, hour, day, weather). The autoregressive
+    features (lags) are not known for a future moment, so they are taken
+    from the segment's typical history for the preceding half-hours."""
+    seg_id  = seg['segment_id']
+    weekend = int(day >= 5)
+    slot    = hour * 2
+    prev    = [_typical_score(seg_id, weekend, slot - k) for k in range(1, 7)]  # 30 min … 3 h ago
+    is_rush = int(hour in (7, 8, 9, 17, 18, 19))
+    severity = 3 if precip > 5 else 2 if precip > 1 else 1 if precip > 0 else 0
+    st = SEG_STATIC[seg_id]
+    row = {
+        'hour': hour, 'day_of_week': day, 'is_weekend': weekend,
+        'is_rush_hour': is_rush, 'is_night': int(hour in (0, 1, 2, 3, 4, 5, 23)),
+        'hour_sin': np.sin(2 * np.pi * hour / 24), 'hour_cos': np.cos(2 * np.pi * hour / 24),
+        'weather_temp_c': temp, 'weather_humidity': WEATHER_MEDIAN['weather_humidity'],
+        'weather_wind_ms': WEATHER_MEDIAN['weather_wind_ms'], 'weather_precip_1h': precip,
+        'is_low_visibility': int(precip > 5), 'weather_severity': severity,
+        'rain_x_rush': precip * is_rush,
+        'lat': float(seg['lat']), 'lon': float(seg['lon']),
+        'street_encoded': st['street_encoded'], 'is_major_street': st['is_major_street'],
+        'dist_from_center': st['dist_from_center'],
+        'lag_1': prev[0], 'lag_2': prev[1],
+        'rolling_mean_6': float(np.mean(prev)), 'rolling_std_6': float(np.std(prev)),
+        'diff_1': prev[0] - prev[1], 'diff_2': prev[0] - prev[1],
+    }
+    return pd.DataFrame([[row[f] for f in FEATURES]], columns=FEATURES)
+
 @app.get("/api/predict")
-async def api_predict(lat:float=Query(43.265),lon:float=Query(76.945),
-    hour:int=Query(18),day:int=Query(4),temp:float=Query(15),precip:float=Query(0)):
+def api_predict(lat:float=Query(43.265),lon:float=Query(76.945),
+    hour:int=Query(18, ge=0, le=23),day:int=Query(4, ge=0, le=6),
+    temp:float=Query(15),precip:float=Query(0, ge=0)):
     dists = np.sqrt((segments['lat']-lat)**2+(segments['lon']-lon)**2)
-    nearest = segments.iloc[dists.idxmin()]
-    nearest_id = nearest['segment_id']
-    seg_data = df[df['segment_id']==nearest_id].copy()
-    if len(seg_data)==0:
-        return {"error":"No data"}
-    seg_data['hour_alm'] = pd.to_numeric(seg_data.get('hour',0), errors='coerce')
-    available_hours = seg_data['hour_alm'].unique()
-    closest_hour = int(min(available_hours, key=lambda h: min(abs(h-hour),24-abs(h-hour))))
-    hour_data = seg_data[seg_data['hour_alm'].between(closest_hour-1,closest_hour+1)]
-    if len(hour_data)==0: hour_data = seg_data
-    mean_score = float(hour_data['traffic_score'].mean())
-    max_score = float(hour_data['traffic_score'].max())
-    congestion_prob = float((hour_data['traffic_score']>THRESHOLD).mean())*100
-    rain_factor = 1.08 if precip > 0 else 1.0
-    predicted_score = round(mean_score*rain_factor, 2)
-    predicted_max = round(max_score*rain_factor, 2)
+    nearest = segments.loc[dists.idxmin()]
+    if nearest['segment_id'] not in SEG_STATIC:
+        return {"error": "No data"}
+
+    X = _build_features(nearest, hour, day, temp, precip)
+    predicted_score = float(xgb_reg.predict(X)[0])
+    congestion_prob = float(xgb_cls.predict_proba(X)[0, 1]) * 100
+
+    # Rain effect measured by the model itself: same input with precip = 0
+    rain_effect = "none"
+    if precip > 0:
+        dry = float(xgb_reg.predict(_build_features(nearest, hour, day, temp, 0.0))[0])
+        rain_effect = f"{(predicted_score - dry) / dry * 100:+.1f}%"
+
     level = 'Low' if predicted_score<=2 else ('Medium' if predicted_score<=3 else 'High')
     speed = round(65-(min(max(predicted_score,1),10)-1)*(65-3)/9, 1)
-    risk = 'HIGH RISK' if congestion_prob>30 else ('MODERATE RISK' if congestion_prob>10 else 'LOW RISK')
-    return {"predicted_score":predicted_score,"predicted_max":predicted_max,
+    risk = 'HIGH RISK' if congestion_prob>50 else ('MODERATE RISK' if congestion_prob>20 else 'LOW RISK')
+    return {"predicted_score":round(predicted_score,2),
+        "predicted_max":round(float(nearest['max_score']),2),
         "congestion_probability":round(congestion_prob,1),"risk":risk,"level":level,
-        "speed_estimate_kmh":speed,"zone_stats":{"mean":round(mean_score,2),"max":round(float(nearest['max_score']),2)},
-        "rain_effect":f"+{round((rain_factor-1)*100)}%" if precip>0 else "none",
-        "nearest_street":str(nearest.get('street','')),"observations":len(hour_data),
+        "speed_estimate_kmh":speed,
+        "zone_stats":{"mean":round(float(nearest['mean_score']),2),"max":round(float(nearest['max_score']),2)},
+        "rain_effect":rain_effect,
+        "nearest_street":str(nearest.get('street','')),
+        "model":{"regressor":"XGBoost","classifier":"XGBoost",
+                 "lags":"typical history of this zone for the preceding 3 h"},
         "input":{"lat":lat,"lon":lon,"hour":hour,"day":day,"temp":temp,"precip":precip}}
 
 @app.get("/api/recommendations")
