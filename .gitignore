@@ -5,3 +5,6 @@ __pycache__/
 .env
 *.log
 data/osm/
+data/v2_experiment/
+data/v2/
+models_v2/

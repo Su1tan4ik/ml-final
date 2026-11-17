@@ -1,0 +1,5 @@
+*
+!requirements-v2.txt
+!scraper/config.py
+!scripts/v2/
+scripts/v2/__pycache__

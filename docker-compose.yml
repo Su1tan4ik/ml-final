@@ -1,0 +1,57 @@
+# V2 stack. Local dev: `docker compose up -d db` (Postgres on localhost:${PG_PORT:-5442}).
+# Same file is meant to run on the server; put real secrets in .env (gitignored).
+services:
+  db:
+    image: pgrouting/pgrouting:17-3.5-3.8   # PostgreSQL 17 + PostGIS 3.5 + pgRouting 3.8
+    container_name: traffic_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB:-traffic}
+      POSTGRES_USER: ${PG_USER:-traffic}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-traffic_dev_only}
+    ports:
+      - "127.0.0.1:${PG_PORT:-5442}:5432"   # bound to localhost only
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/functions.sql:/docker-entrypoint-initdb.d/02_functions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-traffic} -d ${PG_DB:-traffic}"]
+      interval: 5s
+      retries: 20
+
+  # ---- server profile: `docker compose --profile server up -d` (NOT started by plain `up -d db`)
+  api:
+    profiles: ["server"]
+    build: { context: ., dockerfile: deploy/v2.Dockerfile }
+    image: almaty-traffic-v2
+    container_name: traffic_api
+    restart: unless-stopped
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"   # = owner of ./data on the host (`id -u`)
+    depends_on: { db: { condition: service_healthy } }
+    environment: &appenv
+      PG_HOST: db
+      PG_PORT: "5432"
+      PG_DB: ${PG_DB:-traffic}
+      PG_USER: ${PG_USER:-traffic}
+      PG_PASSWORD: ${PG_PASSWORD:-traffic_dev_only}
+      OWM_API_KEY: ${OWM_API_KEY:-}
+    volumes: &appvol
+      - ./data:/app/data
+      - ./models_v2:/app/models_v2
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8002}:8002"
+
+  collector:
+    profiles: ["server"]
+    image: almaty-traffic-v2
+    container_name: traffic_collector
+    restart: unless-stopped
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    depends_on: { db: { condition: service_healthy } }
+    environment: *appenv
+    volumes: *appvol
+    command: ["bash", "scrape_loop.sh"]
+
+volumes:
+  pgdata:

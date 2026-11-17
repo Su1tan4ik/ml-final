@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Almaty Traffic V2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#111317; --card:#1a1d23; --line:#2a2e36; --text:#e6e6e6; --muted:#9aa0a6; --accent:#3d8bff;
+          --g:#3cb44b; --y:#f0c828; --o:#f0821e; --r:#dc2828; --dr:#780000; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font-family: -apple-system, system-ui, "Segoe UI", sans-serif; font-size: 14px; }
+  header { height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 14px; border-bottom: 1px solid var(--line);
+           background: #15171c; overflow-x: auto; }
+  header h1 { font-size: 15px; margin: 0 16px 0 0; white-space: nowrap; }
+  header button.tab { background: none; border: 0; color: var(--muted); padding: 8px 12px; border-radius: 8px; cursor: pointer;
+                      font-size: 14px; white-space: nowrap; }
+  header button.tab.on { color: var(--text); background: #252a33; }
+  header .status { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  main { height: calc(100% - 48px); }
+  section { display: none; height: 100%; overflow-y: auto; padding: 18px 22px 40px; }
+  section.on { display: block; }
+  #tab-map { padding: 0; position: relative; }
+  #map { position: absolute; inset: 0; }
+  .panel { position: absolute; top: 12px; left: 12px; z-index: 2; background: rgba(20,22,28,.93); padding: 12px 14px;
+           border-radius: 10px; width: 300px; font-size: 13px; line-height: 1.45; }
+  .muted { color: var(--muted); }
+  .legend span { display: inline-block; width: 22px; height: 4px; margin: 0 4px 2px 0; vertical-align: middle; border-radius: 2px; }
+  .sw { display: inline-block; width: 12px; height: 4px; vertical-align: middle; margin-right: 6px; }
+  button, select { background: #2d313a; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 9px; cursor: pointer; font-size: 13px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  h2 { font-size: 18px; margin: 4px 0 4px; }
+  h3 { font-size: 15px; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 16px; max-width: 980px; line-height: 1.5; }
+  .grid { display: grid; gap: 14px; }
+  .g4 { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  .g2 { grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .stat .v { font-size: 26px; font-weight: 600; margin-top: 4px; }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  .stat .s { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .chart { position: relative; height: 260px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .note { background: #1d2430; border: 1px solid #2c3b52; border-radius: 10px; padding: 10px 14px; margin: 0 0 16px;
+          color: #c7d3e3; line-height: 1.5; max-width: 980px; }
+  .better { color: #5fd17a; } .worse { color: #ff7b72; }
+  .bar { height: 8px; border-radius: 4px; background: #2a2e36; overflow: hidden; display: flex; }
+  .bar i { display: block; height: 100%; }
+  .rec { display: flex; flex-direction: column; gap: 8px; }
+  .rec .top { display: flex; gap: 10px; align-items: flex-start; }
+  .rec .ic { font-size: 24px; line-height: 1; }
+  .rec .t { font-weight: 600; }
+  .kv { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; }
+  .kv b { color: var(--text); font-weight: 500; }
+  .arch { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+  .arch .box { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 200px; font-size: 13px; }
+  .arch .box b { display: block; margin-bottom: 4px; }
+  .arch .arrow { align-self: center; color: var(--muted); font-size: 20px; }
+  a { color: var(--accent); cursor: pointer; }
+  .maplibregl-popup-content { background: #1a1d23; color: #e6e6e6; }
+  .maplibregl-popup-tip { border-top-color: #1a1d23 !important; border-bottom-color: #1a1d23 !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Пробки Алматы · V2</h1>
+  <button class="tab on" data-tab="map">Карта</button>
+  <button class="tab" data-tab="dash">Дашборд</button>
+  <button class="tab" data-tab="fc">Прогноз</button>
+  <button class="tab" data-tab="models">Модели</button>
+  <button class="tab" data-tab="recs">Рекомендации</button>
+  <button class="tab" data-tab="coll">Сбор данных</button>
+  <button class="tab" data-tab="arch">Архитектура</button>
+  <div class="status" id="status"></div>
+</header>
+<main>
+
+<!-- ============================ MAP ============================ -->
+<section id="tab-map" class="on">
+  <div id="map"></div>
+  <div class="panel">
+    <div class="muted" id="slot">загрузка…</div>
+    <div style="margin-top:6px">Показать: <select id="h"><option value="0">сейчас</option></select></div>
+    <div class="legend" style="margin-top:6px">
+      <span style="background:var(--g)"></span>свободно <span style="background:var(--y)"></span>
+      <span style="background:var(--o)"></span><span style="background:var(--r)"></span>
+      <span style="background:var(--dr)"></span>пробка
+    </div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #333">
+      <button id="route-btn">Маршрут A → B</button> <button id="reset">сброс</button>
+      <div id="route-hint" class="muted" style="margin-top:6px">Клик по улице — информация и прогноз.</div>
+      <div id="route-info" style="margin-top:6px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DASHBOARD ============================ -->
+<section id="tab-dash">
+  <h2>Дашборд</h2>
+  <p class="sub">Сводка по всем собранным срезам (за последние 7 дней). Балл: 1.5 — свободно … 9.5 — пробка;
+    «в пробке» — участки с баллом ≥ 5.5 (оранжевый и хуже). Средние взвешены по длине участков.</p>
+  <div id="dash-note"></div>
+  <div class="grid g4" id="stats"></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Загрузка города по времени</h3><div class="chart"><canvas id="ch-timeline"></canvas></div></div>
+    <div class="card"><h3>Доля дорог в пробке по классам дорог</h3><div class="chart"><canvas id="ch-class"></canvas></div></div>
+    <div class="card"><h3>По часам суток (время Алматы)</h3><div class="chart"><canvas id="ch-hour"></canvas></div></div>
+    <div class="card"><h3>По дням недели</h3><div class="chart"><canvas id="ch-dow"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>Самые загруженные улицы</h3>
+    <table id="hot"><thead><tr><th>#</th><th>Улица</th><th class="n">Средний балл</th><th class="n">В пробке, % времени·длины</th>
+      <th class="n">Макс.</th><th class="n">Сейчас</th><th class="n">км</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- ============================ FORECAST ============================ -->
+<section id="tab-fc">
+  <h2>Прогноз по улице</h2>
+  <p class="sub">Наблюдения (балл, взвешенный по длине участков улицы) и последний прогноз модели XGBoost
+    на +30 / +60 / +120 минут. Улицу можно выбрать здесь или кликнуть по ней на карте.</p>
+  <div style="margin-bottom:12px">Улица: <select id="fc-street" style="min-width:320px"></select></div>
+  <div class="grid g4" id="fc-stats"></div>
+  <div class="card" style="margin-top:14px"><h3 id="fc-title"></h3><div class="chart" style="height:320px"><canvas id="ch-fc"></canvas></div>
+    <div class="muted" id="fc-foot" style="margin-top:8px;font-size:12px"></div></div>
+</section>
+
+<!-- ============================ MODELS ============================ -->
+<section id="tab-models">
+  <h2>Модели</h2>
+  <p class="sub">XGBoost-регрессия (балл через h×30 мин) и классификатор «будет пробка» (балл ≥ 5.5) для каждого участка
+    и направления. Проверка честная: разбиение по времени (последние 20% срезов — тест), активные участки и порог классификатора
+    выбираются только на обучающем периоде. Сравнение с базовыми прогнозами: «как сейчас» и «типично в это время».</p>
+  <div id="m-note"></div>
+  <div class="grid g4" id="m-data"></div>
+  <div class="card" style="margin-top:14px"><h3>Регрессия: ошибка прогноза балла (MAE, меньше — лучше)</h3>
+    <table id="m-reg"></table><div class="chart" style="margin-top:12px"><canvas id="ch-mae"></canvas></div></div>
+  <div class="card" style="margin-top:14px"><h3>Классификация «будет пробка» (F1, больше — лучше)</h3><table id="m-cls"></table></div>
+  <div class="card" style="margin-top:14px"><h3>Важность признаков (доля gain, горизонт <span id="m-fh"></span>)</h3>
+    <div class="chart" style="height:340px"><canvas id="ch-imp"></canvas></div></div>
+</section>
+
+<!-- ============================ RECOMMENDATIONS ============================ -->
+<section id="tab-recs">
+  <h2>Рекомендации</h2>
+  <p class="sub">Для самых загруженных улиц прогноз модели раскладывается на вклады признаков (TreeSHAP, XGBoost
+    <code>pred_contribs</code>). История пробок всегда даёт основной вклад — это честно показано. Тип рекомендации выбирается
+    по «структурной» части (без истории и координат): соседние участки → 🚦 светофоры, время суток → ⏰ час пик,
+    параметры дороги → 🛣 узкое место, погода → 🌧, поровну → ⚡.</p>
+  <div id="r-note"></div>
+  <div style="margin-bottom:12px" id="r-filter"></div>
+  <div class="grid g2" id="r-list"></div>
+</section>
+
+<!-- ============================ COLLECTION ============================ -->
+<section id="tab-coll">
+  <h2>Сбор данных</h2>
+  <p class="sub">Каждые 30 минут сервер скачивает 2 226 тайлов пробок Yandex (zoom 16, ≈1.7 м/пиксель), классифицирует
+    цвет каждого пикселя и привязывает его к участку дороги OSM и направлению движения.</p>
+  <div class="grid g4" id="c-stats"></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Участков с данными в каждом срезе</h3><div class="chart"><canvas id="ch-rows"></canvas></div></div>
+    <div class="card"><h3>Время сбора среза, сек</h3><div class="chart"><canvas id="ch-sec"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Последние срезы</h3>
+    <table id="c-table"><thead><tr><th>Срез (Алматы)</th><th class="n">Тайлов ок</th><th class="n">Пустых</th><th class="n">Ошибок</th>
+      <th class="n">Участков</th><th class="n">Сек</th><th>Примечание</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<!-- ============================ ARCHITECTURE ============================ -->
+<section id="tab-arch">
+  <h2>Архитектура V2</h2>
+  <p class="sub">От «средний цвет квадрата 1×1 км» (V1) к пробкам на каждой улице и в каждом направлении.</p>
+  <div class="arch">
+    <div class="box"><b>1. Тайлы Yandex</b>2 226 PNG, zoom 16 (≈1.7 м/px), проекция EPSG:3395, каждые 30 мин</div><div class="arrow">→</div>
+    <div class="box"><b>2. Цвет пикселя</b>HSV → 5 классов: свободно / медленно / средне / плотно / пробка (1.5…9.5)</div><div class="arrow">→</div>
+    <div class="box"><b>3. Привязка к дорогам</b>Граф OSM: 80 592 участков ≤150 м; пиксель → (участок, направление) в радиусе 12 м</div><div class="arrow">→</div>
+    <div class="box"><b>4. PostgreSQL</b>PostGIS + pgRouting: ~87 тыс. наблюдений за срез, история, прогнозы</div><div class="arrow">→</div>
+    <div class="box"><b>5. Модель</b>XGBoost: регрессия + классификатор, горизонты 30/60/120 мин, 30 признаков; переобучение раз в сутки</div><div class="arrow">→</div>
+    <div class="box"><b>6. API + сайт</b>FastAPI, MapLibre, Chart.js; маршрут A→B с учётом пробок (Dijkstra)</div>
+  </div>
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card"><h3>V1 → V2</h3><table>
+      <tr><th></th><th>V1</th><th>V2</th></tr>
+      <tr><td>Единица</td><td>квадрат 1×1 км (z15)</td><td>участок улицы ≤150 м + направление</td></tr>
+      <tr><td>Объектов</td><td>220 квадратов</td><td>~87 тыс. (участок, направление) за срез</td></tr>
+      <tr><td>Хранение</td><td>CSV в git (LFS)</td><td>PostgreSQL + PostGIS</td></tr>
+      <tr><td>Сбор</td><td>GitHub Actions (пропуски часов пик)</td><td>свой сервер, Docker, каждые 30 мин</td></tr>
+      <tr><td>Проекция</td><td>EPSG:3857 (сдвиг ~21 км)</td><td>EPSG:3395 (как у Yandex)</td></tr>
+      <tr><td>Маршрут</td><td>—</td><td>pgRouting, время с учётом пробок</td></tr>
+    </table></div>
+    <div class="card"><h3>Признаки модели (30)</h3><table>
+      <tr><td>История</td><td>балл сейчас, 3 лага, изменение, среднее/разброс/максимум за 3 ч, сутки и неделю назад, типично в это время</td></tr>
+      <tr><td>Соседи</td><td>средний и максимальный балл соседних участков, соседи 30 мин назад</td></tr>
+      <tr><td>Время</td><td>час (sin/cos), день недели, выходной, горизонт</td></tr>
+      <tr><td>Дорога</td><td>класс, направление, односторонняя, полосы, длина, координаты</td></tr>
+      <tr><td>Погода</td><td>температура, осадки (OpenWeatherMap)</td></tr>
+    </table></div>
+    <div class="card"><h3>Стек</h3><div class="muted" style="line-height:1.7">
+      Python 3.12 · aiohttp · NumPy/pandas · XGBoost · scikit-learn · PostgreSQL 17 + PostGIS 3.5 + pgRouting 3.8 ·
+      FastAPI · MapLibre GL · Chart.js · Docker Compose · OSM Overpass</div></div>
+    <div class="card"><h3>Честная оценка</h3><div class="muted" style="line-height:1.7">
+      Разбиение по времени · признаки только из прошлого (тест: подмена будущего не меняет признаки) ·
+      активные участки и порог классификатора — только по обучению · сравнение с наивными прогнозами</div></div>
+  </div>
+</section>
+</main>
+
+<script>
+// ---------------------------------------------------------------- helpers
+const $ = id => document.getElementById(id);
+const api = async (p) => { const r = await fetch(p); if (!r.ok) throw new Error(`${p}: ${r.status}`); return r.json(); };
+const fmt = (x, d = 2) => x == null ? '—' : Number(x).toLocaleString('ru-RU', { maximumFractionDigits: d, minimumFractionDigits: d });
+const int = x => x == null ? '—' : Number(x).toLocaleString('ru-RU');
+const local = ts => new Date(ts).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const hm = ts => new Date(ts).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit' });
+const scoreCol = s => s >= 8.5 ? '#780000' : s >= 6.5 ? '#dc2828' : s >= 4.5 ? '#f0821e' : s >= 2.5 ? '#f0c828' : '#3cb44b';
+const stat = (l, v, s = '') => `<div class="card stat"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+Chart.defaults.color = '#9aa0a6'; Chart.defaults.borderColor = '#2a2e36'; Chart.defaults.font.size = 12;
+const charts = {};
+function chart(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart($(id), cfg); }
+const dataNote = (slots, what) => {
+  const days = slots / 48;
+  if (days >= 7) return '';
+  return `<div class="note">ℹ️ Сбор по дорогам идёт с 17.11.2026: сейчас <b>${slots} срезов (≈${fmt(slots / 2, 1)} ч)</b>.
+    ${what} Результаты предварительные и будут меняться по мере накопления данных (цель — 7+ дней:
+    будни, выходные, утренний и вечерний час пик).</div>`;
+};
+
+// ---------------------------------------------------------------- tabs
+const loaded = {};
+const loaders = { dash: loadDash, fc: loadFc, models: loadModels, recs: loadRecs, coll: loadColl };
+function show(tab) {
+  document.querySelectorAll('header .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + tab));
+  if (tab === 'map') requestAnimationFrame(() => map.resize());
+  if (loaders[tab] && !loaded[tab]) { loaded[tab] = true; loaders[tab]().catch(e => { loaded[tab] = false; console.error(e); }); }
+  history.replaceState(null, '', '#' + tab);
+}
+document.querySelectorAll('header .tab').forEach(b => b.onclick = () => show(b.dataset.tab));
+
+// ---------------------------------------------------------------- MAP
+const map = new maplibregl.Map({
+  container: 'map', center: [76.93, 43.25], zoom: 13,
+  style: { version: 8,
+    sources: {
+      base: { type: 'raster', tileSize: 256, maxzoom: 16, attribution: 'Tiles © Esri',
+              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'] },
+      labels: { type: 'raster', tileSize: 256, maxzoom: 16,
+              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'] } },
+    layers: [{ id: 'base', type: 'raster', source: 'base' }] }
+});
+const scoreColor = ['step', ['get', 'score'], '#3cb44b', 2.5, '#f0c828', 4.5, '#f0821e', 6.5, '#dc2828', 8.5, '#780000'];
+let pts = [], markers = [], routeMode = false, TRAFFIC = null;
+const H = () => +$('h').value;
+
+map.on('load', async () => {
+  map.addSource('traffic', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'traffic', type: 'line', source: 'traffic',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': scoreColor,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.2, 14, 2.5, 17, 5],
+      // ['zoom'] must be the top-level interpolate input (MapLibre rejects it nested in 'case')
+      'line-offset': ['interpolate', ['linear'], ['zoom'],
+                      11, ['case', ['==', ['get', 'dir'], 0], 0, 0.8],
+                      14, ['case', ['==', ['get', 'dir'], 0], 0, 2],
+                      17, ['case', ['==', ['get', 'dir'], 0], 0, 5]] } });
+  map.addSource('hl', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'hl', type: 'line', source: 'hl', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': .35 } });
+  map.addSource('routes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'route-short', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'shortest'],
+                 paint: { 'line-color': '#bbbbbb', 'line-width': 5, 'line-opacity': .55, 'line-dasharray': [2, 1] } });
+  map.addLayer({ id: 'route-fast', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'fastest'],
+                 paint: { 'line-color': '#3d8bff', 'line-width': 5, 'line-opacity': .9 } });
+  map.addLayer({ id: 'labels', type: 'raster', source: 'labels' });
+  const hz = await api('/api/horizons');
+  hz.horizons.filter(h => h > 0).forEach(h => $('h').add(new Option(`прогноз +${30 * h} мин`, h)));
+  $('h').onchange = () => { loadTraffic(); if (pts.length === 2) drawRoute(); };
+  loadTraffic();
+  map.on('mouseenter', 'traffic', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'traffic', () => map.getCanvas().style.cursor = '');
+});
+
+async function loadTraffic() {
+  $('slot').textContent = 'загрузка…';
+  const fc = await api(`/api/traffic?h=${H()}`);
+  TRAFFIC = fc;
+  map.getSource('traffic').setData(fc);
+  $('slot').textContent = fc.ts ? `срез: ${local(fc.ts)}${H() ? ` · прогноз +${30 * H()} мин` : ''} · ${int(fc.features.length)} участков`
+                                : 'нет данных в БД';
+}
+
+map.on('click', async e => {
+  if (routeMode) {
+    if (pts.length >= 2) clearRoute();
+    pts.push(e.lngLat);
+    markers.push(new maplibregl.Marker({ color: pts.length === 1 ? '#2ecc71' : '#e74c3c' }).setLngLat(e.lngLat).addTo(map));
+    if (pts.length === 2) drawRoute();
+    return;
+  }
+  const f = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: ['traffic'] })[0];
+  if (!f) return;
+  const p = f.properties;
+  const dirTxt = p.dir == 0 ? 'одностороннее / по оси' : 'одно из двух направлений';
+  new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(e.lngLat).setHTML(
+    `<b>${esc(p.name || p.highway)}</b><br><span class="muted">${esc(p.highway)} · ${dirTxt}</span><br>` +
+    `балл <b style="color:${scoreCol(p.score)}">${p.score}</b>${H() ? ` (прогноз +${30 * H()} мин)` : ''}` +
+    (p.name ? `<br><a onclick='openStreet(${JSON.stringify(p.name)})'>история и прогноз улицы →</a>` : '')).addTo(map);
+});
+
+$('route-btn').onclick = () => {
+  routeMode = !routeMode;
+  $('route-btn').classList.toggle('primary', routeMode);
+  $('route-hint').textContent = routeMode ? 'Кликните точку A, затем B.' : 'Клик по улице — информация и прогноз.';
+};
+async function drawRoute() {
+  const [a, b] = pts;
+  $('route-info').textContent = 'считаю…';
+  const r = await fetch(`/api/route?a_lat=${a.lat}&a_lon=${a.lng}&b_lat=${b.lat}&b_lon=${b.lng}&h=${H()}`);
+  if (!r.ok) { $('route-info').textContent = 'маршрут не найден'; return; }
+  const d = await r.json();
+  map.getSource('routes').setData({ type: 'FeatureCollection', features:
+    ['shortest', 'fastest'].filter(k => d[k]).map(k => ({ type: 'Feature', geometry: d[k].geometry, properties: { kind: k } })) });
+  const s = d.shortest, f = d.fastest;
+  $('route-info').innerHTML =
+    `<div><span class="sw" style="background:#3d8bff"></span><b>быстрый с учётом пробок:</b> ${f.length_km} км · ${f.time_min} мин</div>` +
+    `<div><span class="sw" style="background:#bbb"></span>кратчайший: ${s.length_km} км · ${s.time_min} мин</div>` +
+    `<div class="muted">без пробок было бы ${f.time_free_min} мин · время по условным скоростям</div>`;
+}
+function clearRoute() {
+  pts = []; markers.forEach(m => m.remove()); markers = [];
+  map.getSource('routes').setData({ type: 'FeatureCollection', features: [] });
+  $('route-info').textContent = '';
+}
+$('reset').onclick = () => { clearRoute(); map.getSource('hl').setData({ type: 'FeatureCollection', features: [] }); };
+
+function showOnMap(lat, lon, edgeIds) {
+  show('map');
+  map.flyTo({ center: [lon, lat], zoom: 15 });
+  if (edgeIds) {
+    const fc = TRAFFIC;
+    const set = new Set(edgeIds);
+    const feats = (fc && fc.features || []).filter(f => set.has(f.properties.edge_id));
+    map.getSource('hl').setData({ type: 'FeatureCollection', features: feats });
+  }
+}
+
+// ---------------------------------------------------------------- status line
+api('/api/summary').then(s => {
+  $('status').textContent = s.last ? `последний срез ${local(s.last)} · ${s.slots} срезов` : '';
+  window.SUMMARY = s;
+});
+
+// ---------------------------------------------------------------- DASHBOARD
+async function loadDash() {
+  const [s, tl, hr, hot] = await Promise.all([api('/api/summary'), api('/api/timeline'), api('/api/hourly'), api('/api/hotspots?limit=20')]);
+  $('dash-note').innerHTML = dataNote(s.slots, 'Профили по часам и дням недели пока покрывают только часть суток.');
+  $('stats').innerHTML =
+    stat('Срезов собрано', int(s.slots), `${local(s.first)} — ${local(s.last)}`) +
+    stat('Наблюдений', int(s.obs_total), '(участок, направление, срез)') +
+    stat('Участков в последнем срезе', int(s.now.units), `${int(s.now.edges)} участков дорог · ${int(s.now.km)} км`) +
+    stat('Средний балл сейчас', `<span style="color:${scoreCol(s.now.mean_score)}">${fmt(s.now.mean_score)}</span>`, 'по длине дорог, 1.5 … 9.5') +
+    stat('В пробке сейчас', fmt(s.now.congested_pct, 1) + '%', 'длины дорог с баллом ≥ 5.5') +
+    stat('Граф дорог OSM', int(s.graph.edges), `${int(s.graph.km)} км участков`);
+  const all = tl.filter(r => r.cls == null), labels = all.map(r => local(r.ts));
+  chart('ch-timeline', { type: 'line', data: { labels, datasets: [
+      { label: 'средний балл', data: all.map(r => r.mean_score), borderColor: '#3d8bff', yAxisID: 'y', tension: .3 },
+      { label: '% в пробке', data: all.map(r => r.congested_pct), borderColor: '#dc2828', yAxisID: 'y1', tension: .3 }] },
+    options: { maintainAspectRatio: false, scales: { y: { title: { display: true, text: 'балл' } },
+      y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '%' } } } } });
+  const classes = ['магистрали', 'районные', 'местные', 'жилые улицы'], cc = ['#dc2828', '#f0821e', '#f0c828', '#3cb44b'];
+  chart('ch-class', { type: 'line', data: { labels, datasets: classes.map((c, i) => ({ label: c, borderColor: cc[i], tension: .3,
+      data: all.map(a => (tl.find(r => r.cls === c && r.ts === a.ts) || {}).congested_pct) })) },
+    options: { maintainAspectRatio: false, scales: { y: { title: { display: true, text: '% длины в пробке' } } } } });
+  const hours = [...Array(24).keys()], hmap = Object.fromEntries(hr.by_hour.map(r => [r.hour, r]));
+  chart('ch-hour', { type: 'bar', data: { labels: hours.map(h => h + ':00'), datasets: [
+      { label: '% в пробке', data: hours.map(h => hmap[h]?.congested_pct ?? null), backgroundColor: '#dc2828', yAxisID: 'y' },
+      { label: 'средний балл', data: hours.map(h => hmap[h]?.mean_score ?? null), type: 'line', borderColor: '#3d8bff', yAxisID: 'y1' }] },
+    options: { maintainAspectRatio: false, scales: { y: { position: 'left', beginAtZero: true, title: { display: true, text: '% в пробке' } }, y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'балл' } } },
+      plugins: { tooltip: { callbacks: { footer: it => `срезов: ${hmap[hours[it[0].dataIndex]]?.slots ?? 0}` } } } } });
+  const dn = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'], dmap = Object.fromEntries(hr.by_dow.map(r => [r.dow, r]));
+  chart('ch-dow', { type: 'bar', data: { labels: dn, datasets: [
+      { label: '% в пробке', data: dn.map((_, i) => dmap[i + 1]?.congested_pct ?? null), backgroundColor: '#f0821e', yAxisID: 'y' },
+      { label: 'средний балл', data: dn.map((_, i) => dmap[i + 1]?.mean_score ?? null), type: 'line', borderColor: '#3d8bff', yAxisID: 'y1' }] },
+    options: { maintainAspectRatio: false, scales: { y: { position: 'left', beginAtZero: true, title: { display: true, text: '% в пробке' } }, y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'балл' } } } } });
+  $('hot').querySelector('tbody').innerHTML = hot.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td>
+    <td class="n" style="color:${scoreCol(r.mean_score)}">${fmt(r.mean_score)}</td><td class="n">${fmt(r.congested_pct, 1)}</td>
+    <td class="n">${fmt(r.max_score, 1)}</td><td class="n" style="color:${scoreCol(r.now_score)}">${fmt(r.now_score)}</td>
+    <td class="n">${fmt(r.km)}</td><td><a onclick='openStreet(${JSON.stringify(r.name)})'>прогноз →</a></td></tr>`).join('');
+}
+
+// ---------------------------------------------------------------- FORECAST
+let fcStreets = null;
+async function loadFc(name) {
+  if (!fcStreets) {
+    const hot = await api('/api/hotspots?limit=100');
+    fcStreets = hot.map(r => r.name);
+    const sel = $('fc-street');
+    fcStreets.forEach(n => sel.add(new Option(n, n)));
+    sel.onchange = () => drawStreet(sel.value);
+  }
+  const target = name || $('fc-street').value || fcStreets[0];
+  if (target && ![...$('fc-street').options].some(o => o.value === target)) $('fc-street').add(new Option(target, target));
+  $('fc-street').value = target;
+  if (target) await drawStreet(target);
+}
+function openStreet(name) { show('fc'); loaded.fc = true; loadFc(name); }
+async function drawStreet(name) {
+  const d = await api('/api/street?name=' + encodeURIComponent(name));
+  const last = d.history[d.history.length - 1];
+  const fc = d.forecast;
+  $('fc-stats').innerHTML =
+    stat('Сейчас', `<span style="color:${scoreCol(last.score)}">${fmt(last.score)}</span>`, `${local(last.ts)} · в пробке ${fmt(last.congested_pct, 1)}% длины`) +
+    fc.map(f => stat(`Прогноз на ${hm(f.target_ts)}`, `<span style="color:${scoreCol(f.score)}">${fmt(f.score)}</span>`,
+      f.p_congested != null ? `вероятность пробки ≈ ${fmt(f.p_congested * 100, 0)}% (среднее по участкам)` : '')).join('') +
+    stat('Улица', `${fmt(d.info.length_m / 1000, 1)} км`, `${esc(d.info.highway)} · ${d.info.lanes ?? '?'} полос · ${d.info.edges} участков`);
+  $('fc-title').textContent = name;
+  const H = d.history.map(r => ({ x: new Date(r.ts).getTime(), y: r.score }));
+  const F = fc.length ? [{ x: new Date(last.ts).getTime(), y: last.score }, ...fc.map(r => ({ x: new Date(r.target_ts).getTime(), y: r.score }))] : [];
+  const lbl = t => new Date(t).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  chart('ch-fc', { type: 'line', data: { datasets: [
+      { label: 'наблюдение', data: H, borderColor: '#e6e6e6', backgroundColor: '#e6e6e6', tension: .25 },
+      { label: 'прогноз модели', data: F, borderColor: '#3d8bff', backgroundColor: '#3d8bff', borderDash: [6, 4], tension: .25 }] },
+    options: { maintainAspectRatio: false, parsing: false,
+      scales: { x: { type: 'linear', min: Math.floor(H[0].x / 3600000) * 3600000, ticks: { callback: lbl, stepSize: 3600000 * Math.max(1, Math.ceil((((F.at(-1) || H.at(-1)).x - H[0].x) / 3600000) / 10)) } }, y: { suggestedMin: 1.5, suggestedMax: 6, title: { display: true, text: 'балл' } } },
+      plugins: { tooltip: { callbacks: { title: it => lbl(it[0].parsed.x) } } } } });
+  $('fc-foot').innerHTML = fc.length
+    ? `Прогноз сделан по срезу ${local(fc[0].made_at)} по ${fc[0].units} активным (участок, направление) этой улицы; участки, которые в обучающем периоде всегда были свободны, моделью не прогнозируются (считаются свободными). <a onclick='showOnMap(${d.info.lat},${d.info.lon})'>показать на карте</a>`
+    : 'Для этой улицы прогноза пока нет (модель ещё не обучена или улица не попала в активные участки).';
+}
+
+// ---------------------------------------------------------------- MODELS
+const HRU = { 1: '+30 мин', 2: '+60 мин', 4: '+120 мин' };
+async function loadModels() {
+  const { report: r } = await api('/api/report');
+  if (!r) { $('m-note').innerHTML = '<div class="note">Модель ещё не обучалась.</div>'; return; }
+  const D = r.data;
+  $('m-note').innerHTML = dataNote(D.slots_with_data, `Модель обучена ${local(r.trained_at)} на этих данных: признаки «сутки/неделю назад» и
+    профиль по времени суток ещё пустые, тестовый период — последние ${Math.max(1, Math.round(D.slots * 0.2))} срезов.`);
+  $('m-data').innerHTML =
+    stat('Срезов в обучении', D.slots_with_data, `${local(D.from)} — ${local(D.to)}`) +
+    stat('Активных (участок, направление)', int(D.active_units), `из ${int(D.units)} наблюдавшихся`) +
+    stat('Тест с', local(D.test_from), 'разбиение по времени') +
+    stat('Порог «пробки»', '≥ ' + r.congested_score, 'балл оранжевый и хуже');
+  const hs = Object.keys(r.horizons);
+  const cell = (x, base) => `<td class="n ${x != null && base != null ? (x < base ? 'better' : 'worse') : ''}">${fmt(x, 3)}</td>`;
+  $('m-reg').innerHTML = `<tr><th>Горизонт</th><th class="n">XGBoost MAE</th><th class="n">«как сейчас» MAE</th><th class="n">«типично» MAE</th>
+      <th class="n">XGBoost R²</th><th class="n">«как сейчас» R²</th><th class="n">MAE на пробках: XGB / «как сейчас»</th><th class="n">тест, строк</th></tr>` +
+    hs.map(h => { const g = r.horizons[h].regression, c = g.on_congested_targets;
+      return `<tr><td>${HRU[h] || h}</td>${cell(g.xgboost.mae, g.naive_now.mae)}<td class="n">${fmt(g.naive_now.mae, 3)}</td>
+        <td class="n">${fmt(g.time_profile.mae, 3)}</td><td class="n">${fmt(g.xgboost.r2, 3)}</td><td class="n">${fmt(g.naive_now.r2, 3)}</td>
+        <td class="n">${c ? fmt(c.xgboost.mae, 2) + ' / ' + fmt(c.naive_now.mae, 2) : '—'}</td><td class="n">${int(r.horizons[h].rows.test)}</td></tr>`; }).join('');
+  chart('ch-mae', { type: 'bar', data: { labels: hs.map(h => HRU[h] || h), datasets: [
+      { label: 'XGBoost', data: hs.map(h => r.horizons[h].regression.xgboost.mae), backgroundColor: '#3d8bff' },
+      { label: '«как сейчас»', data: hs.map(h => r.horizons[h].regression.naive_now.mae), backgroundColor: '#6b7280' },
+      { label: '«типично в это время»', data: hs.map(h => r.horizons[h].regression.time_profile.mae), backgroundColor: '#a78bfa' }] },
+    options: { maintainAspectRatio: false, scales: { y: { title: { display: true, text: 'MAE, балл' } } } } });
+  $('m-cls').innerHTML = `<tr><th>Горизонт</th><th class="n">XGBoost F1</th><th class="n">«как сейчас» F1</th><th class="n">Precision</th>
+      <th class="n">Recall</th><th class="n">ROC-AUC</th><th class="n">Порог</th><th class="n">Доля пробок в тесте</th></tr>` +
+    hs.map(h => { const c = r.horizons[h].classification; if (!c) return `<tr><td>${HRU[h] || h}</td><td colspan="7" class="muted">мало примеров пробок для классификатора</td></tr>`;
+      return `<tr><td>${HRU[h] || h}</td><td class="n ${c.xgboost.f1 > c.naive_now.f1 ? 'better' : 'worse'}">${fmt(c.xgboost.f1, 3)}</td>
+        <td class="n">${fmt(c.naive_now.f1, 3)}</td><td class="n">${fmt(c.xgboost.precision, 3)}</td><td class="n">${fmt(c.xgboost.recall, 3)}</td>
+        <td class="n">${fmt(c.xgboost.roc_auc, 3)}</td><td class="n">${fmt(c.threshold, 3)}</td><td class="n">${fmt(c.xgboost.positive_rate * 100, 1)}%</td></tr>`; }).join('');
+  const h0 = hs[0], imp = Object.entries(r.horizons[h0].feature_gain_share);
+  $('m-fh').textContent = HRU[h0] || h0;
+  chart('ch-imp', { type: 'bar', data: { labels: imp.map(e => e[0]), datasets: [{ label: 'доля gain', data: imp.map(e => +(e[1] * 100).toFixed(1)), backgroundColor: '#3d8bff' }] },
+    options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: '%' } } } } });
+}
+
+// ---------------------------------------------------------------- RECOMMENDATIONS
+const GCOL = { history: '#6b7280', neighbours: '#dc2828', time: '#f0c828', road: '#3d8bff', weather: '#22d3ee', location: '#a78bfa' };
+const GRU = { history: 'история', neighbours: 'соседи', time: 'время', road: 'дорога', weather: 'погода', location: 'место' };
+const bar = br => `<div class="bar">${Object.entries(br).map(([k, v]) => `<i title="${GRU[k]} ${fmt(v * 100, 0)}%" style="width:${v * 100}%;background:${GCOL[k]}"></i>`).join('')}</div>
+  <div class="kv" style="margin-top:3px">${Object.entries(br).filter(e => e[1] >= 0.005).map(([k, v]) => `<span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${GCOL[k]}"></i> ${GRU[k]} <b>${fmt(v * 100, 0)}%</b></span>`).join('')}</div>`;
+let RECS = null, recFilter = null;
+async function loadRecs() {
+  let d;
+  try { d = await api('/api/recommendations'); } catch { $('r-note').innerHTML = '<div class="note">Рекомендации ещё не построены.</div>'; return; }
+  RECS = d;
+  $('r-note').innerHTML = dataNote(d.data.slots_with_data, `Пока данные только за часть одного дня, поэтому вклад «времени суток» близок к нулю
+    и почти все типы — «соседи» или «дорога».`);
+  const cnt = {}; d.recommendations.forEach(r => cnt[r.type] = (cnt[r.type] || 0) + 1);
+  $('r-filter').innerHTML = `<button onclick="recFilter=null;drawRecs()">все (${d.recommendations.length})</button> ` +
+    Object.entries(d.types).filter(([k]) => cnt[k]).map(([k, t]) => `<button onclick="recFilter='${k}';drawRecs()">${t.icon} ${t.title} (${cnt[k]})</button>`).join(' ');
+  drawRecs();
+}
+function drawRecs() {
+  $('r-list').innerHTML = RECS.recommendations.filter(r => !recFilter || r.type === recFilter).map(r => `
+    <div class="card rec">
+      <div class="top"><div class="ic">${r.icon}</div><div style="flex:1">
+        <div class="t">${r.rank}. ${esc(r.street)}</div>
+        <div class="muted">${esc(r.title)} · приоритет: <b style="color:${r.priority === 'высокий' ? '#ff7b72' : r.priority === 'средний' ? '#f0c828' : '#9aa0a6'}">${r.priority}</b></div></div></div>
+      <div class="kv"><span>средний балл <b style="color:${scoreCol(r.mean_score)}">${fmt(r.mean_score)}</b></span>
+        <span>в пробке <b>${fmt(r.cong_share * 100, 0)}%</b></span><span>макс. <b>${fmt(r.max_score, 1)}</b></span>
+        <span>пик <b>${r.peak_hour != null ? r.peak_hour + ':00' : '—'}</b></span><span>${esc(r.highway || '')}</span>
+        <span>полос <b>${r.lanes ?? '?'}</b></span><span>${fmt(r.length_km)} км улицы</span></div>
+      <div style="font-size:13px;line-height:1.45">${esc(r.description)}</div>
+      ${r.shap_breakdown ? `<div class="muted" style="font-size:12px">Вклад в прогноз (все признаки):</div>${bar(r.shap_breakdown)}
+        <div class="muted" style="font-size:12px">Без истории и координат (по этому выбран тип):</div>${bar(r.structural_breakdown)}
+        <div class="muted" style="font-size:12px">Главный структурный фактор: <b style="color:#e6e6e6">${esc(r.top_feature_ru)}</b> (${fmt(r.top_feature_share * 100, 0)}%)</div>` : ''}
+      <div><a onclick='showOnMap(${r.lat},${r.lon},${JSON.stringify(r.edge_ids)})'>показать на карте</a> ·
+        <a onclick='openStreet(${JSON.stringify(r.street)})'>история и прогноз</a></div>
+    </div>`).join('');
+}
+
+// ---------------------------------------------------------------- COLLECTION
+async function loadColl() {
+  const rows = await api('/api/collection');
+  const ok = rows.filter(r => r.rows_written);
+  const tot = rows.reduce((a, r) => a + (r.tiles_total || 0), 0), good = rows.reduce((a, r) => a + (r.tiles_ok || 0) + (r.tiles_empty || 0), 0);
+  const secs = ok.map(r => +r.seconds).filter(x => x > 0);
+  $('c-stats').innerHTML =
+    stat('Срезов', rows.length, rows.length ? `${local(rows[rows.length - 1].ts)} — ${local(rows[0].ts)}` : '') +
+    stat('Тайлов получено', fmt(tot ? good / tot * 100 : 0, 1) + '%', `ошибок: ${int(rows.reduce((a, r) => a + (r.tiles_err || 0), 0))}`) +
+    stat('Участков за срез (среднее)', int(Math.round(ok.reduce((a, r) => a + r.rows_written, 0) / Math.max(ok.length, 1))), '(участок, направление)') +
+    stat('Время сбора среза', secs.length ? fmt(secs.reduce((a, b) => a + b, 0) / secs.length, 0) + ' с' : '—', 'среднее; 4 параллельных запроса');
+  const asc = [...rows].reverse();
+  chart('ch-rows', { type: 'bar', data: { labels: asc.map(r => local(r.ts)), datasets: [{ label: 'участков', data: asc.map(r => r.rows_written), backgroundColor: '#3d8bff' }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+  chart('ch-sec', { type: 'bar', data: { labels: asc.map(r => local(r.ts)), datasets: [{ label: 'сек', data: asc.map(r => +r.seconds || null), backgroundColor: '#a78bfa' }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+  $('c-table').querySelector('tbody').innerHTML = rows.slice(0, 96).map(r => `<tr><td>${local(r.ts)}</td><td class="n">${int(r.tiles_ok)}</td>
+    <td class="n">${int(r.tiles_empty)}</td><td class="n">${int(r.tiles_err)}</td><td class="n">${int(r.rows_written)}</td>
+    <td class="n">${+r.seconds > 0 ? r.seconds : '—'}</td><td class="muted">${esc(r.note || '')}</td></tr>`).join('');
+}
+
+// ---------------------------------------------------------------- start
+const start = (location.hash || '#map').slice(1);
+if (start !== 'map' && document.getElementById('tab-' + start)) show(start);   // tabs never wait for the map
+</script>
+</body>
+</html>
