@@ -2,7 +2,8 @@
 Offline checks for the V2 model code (no DB, no network):
   1. no leakage: changing any data AFTER the origin slot must not change features
   2. live forecasting (origin = last observed slot) builds the same features as training
-  3. end-to-end training on a synthetic city (rush hours + AR noise + missing values)
+  3. the map gets the model only where it beat the naive "as now" forecast
+  4. end-to-end training on a synthetic city (rush hours + AR noise + missing values)
 
     cd scripts/v2 && ../../venv/bin/python test_v2.py
 """
@@ -74,6 +75,20 @@ def test_serving_matches_training():
     print("ok: live-forecast features == training features (h=1,2,4)")
 
 
+def test_serving_choice():
+    from predict_v2 import choose
+    m = lambda x, n: {"xgboost": {"mae": x}, "naive_now": {"mae": n}}
+    f = lambda x, n: {"xgboost": {"f1": x}, "naive_now": {"f1": n}}
+    rep = {"horizons": {"1": {"regression": m(0.588, 0.379), "classification": None},   # half a day of data
+                        "2": {"regression": m(0.30, 0.40), "classification": f(0.7, 0.6)},
+                        "4": {"regression": m(0.50, 0.60), "classification": f(0.5, 0.6)}}}
+    assert choose(rep, 1) == (False, False)
+    assert choose(rep, 2) == (True, True)
+    assert choose(rep, 4) == (True, False)
+    assert choose(None, 1) == (False, False) and choose(rep, 8) == (False, False)
+    print("ok: model served only where it beats the naive forecast")
+
+
 def test_training():
     p = synthetic_panel()
     with tempfile.TemporaryDirectory() as d:
@@ -88,6 +103,7 @@ def test_training():
 if __name__ == "__main__" and "--db" not in __import__("sys").argv:
     test_no_leakage()
     test_serving_matches_training()
+    test_serving_choice()
     test_training()
 
 

@@ -30,7 +30,7 @@ from sklearn.metrics import (f1_score, mean_absolute_error, mean_squared_error, 
 
 from common import ROOT
 from db import connect
-from features_v2 import FEATURES, FREE, GOOD_SLOT_SHARE, _slot_hist, build_rows, load_matrix
+from features_v2 import FEATURES, FREE, GOOD_SLOT_SHARE, _slot_hist, build_rows, load_matrix, naive_forecast
 
 OUT = ROOT / "models_v2"
 TEST_SHARE = 0.2
@@ -65,9 +65,7 @@ def cls_metrics(y, pred, proba=None):
     return m
 
 
-def fallback(df):
-    """Prediction when the model has no input: now -> typical -> free."""
-    return df["cur"].fillna(df["slot_hist_mean"]).fillna(FREE).values
+fallback = naive_forecast   # prediction without the model: now -> typical -> free
 
 
 def main():

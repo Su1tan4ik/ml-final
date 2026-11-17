@@ -163,6 +163,12 @@ def _slot_hist(S: np.ndarray, slots: pd.DatetimeIndex, days: float | None = SLOT
     return mean, cnt
 
 
+def naive_forecast(df: pd.DataFrame) -> np.ndarray:
+    """Baseline "traffic in h slots = traffic now" (now -> typical for the slot -> free).
+    Used as the yardstick in training and served instead of the model where it loses."""
+    return df["cur"].fillna(df["slot_hist_mean"]).fillna(FREE).values
+
+
 def extend(p: Panel, k: int) -> Panel:
     """Append k empty future slots. Live forecasting builds features at the last observed
     slot for targets up to k slots ahead; without the padding the target slot is outside

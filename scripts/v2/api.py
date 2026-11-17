@@ -290,7 +290,8 @@ def collection():
 
 @app.get("/api/report")
 def report():
-    return {"report": _json_file("report.json"), "meta": _json_file("meta.json")}
+    return {"report": _json_file("report.json"), "meta": _json_file("meta.json"),
+            "serving": _json_file("serving.json")}   # per horizon: model or naive forecast on the map
 
 
 @app.get("/api/recommendations")
