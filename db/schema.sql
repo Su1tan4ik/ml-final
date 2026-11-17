@@ -79,6 +79,9 @@ CREATE TABLE forecast (
     p_congested real,
     PRIMARY KEY (target_ts, edge_id, dir, made_at)
 );
+-- "latest forecast" lookups (max(made_at), WHERE made_at = ...) and the 14-day cleanup in
+-- predict_v2 filter by made_at; without this index they scan the whole table
+CREATE INDEX forecast_made_at ON forecast (made_at);
 
 -- latest observation per edge/direction (for the map)
 CREATE VIEW traffic_now AS

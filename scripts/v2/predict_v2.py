@@ -18,10 +18,10 @@ import xgboost as xgb
 
 from common import ROOT
 from db import connect
-from features_v2 import FREE, _slot_hist, build_rows, load_matrix
+from features_v2 import FREE, SLOT_HIST_DAYS, _slot_hist, build_rows, extend, load_matrix
 
 MODELS = ROOT / "models_v2"
-HISTORY_DAYS = 8          # week_ago feature needs 7 days + horizon
+HISTORY_DAYS = 8          # week_ago and slot_hist_mean (SLOT_HIST_DAYS) need 7 days + horizon
 FORECAST_KEEP_DAYS = 14
 
 
@@ -30,6 +30,9 @@ def main():
     if not (MODELS / "meta.json").exists():
         raise SystemExit("no models_v2/meta.json — train first (train_v2.py)")
     meta = json.load(open(MODELS / "meta.json"))
+    if not meta["horizons"]:
+        raise SystemExit("models_v2/meta.json has no trained horizons — keep collecting, retrain later")
+    assert SLOT_HIST_DAYS + 1 <= HISTORY_DAYS, "HISTORY_DAYS too short for slot_hist_mean"
     with connect() as conn:
         hi = conn.execute("SELECT max(ts) FROM traffic_obs").fetchone()[0]
         panel = load_matrix(conn, hi - timedelta(days=HISTORY_DAYS), hi)
@@ -37,7 +40,10 @@ def main():
     act = act[act.active]
     mask = pd.MultiIndex.from_frame(panel.units[["edge_id", "dir"]]).isin(
         pd.MultiIndex.from_frame(act[["edge_id", "dir"]]))
-    t = panel.S.shape[1] - 1
+    t = panel.S.shape[1] - 1                     # origin = latest observed slot
+    # empty future slots so the TARGET slot exists in the matrix: features (slot_hist_mean,
+    # slot_hist_n) are then computed exactly as in training instead of coming out empty
+    panel = extend(panel, max(meta["horizons"]))
     hist = _slot_hist(panel.S, panel.slots)
 
     rows = []
@@ -49,7 +55,7 @@ def main():
         reg.load_model(MODELS / f"xgb_reg_h{h}.json")
         score = np.clip(reg.predict(X[meta["features"]]), FREE, 9.5)
         p_cong = np.full(len(X), np.nan)
-        if (MODELS / f"xgb_cls_h{h}.json").exists():
+        if str(h) in meta.get("thresholds", {}) and (MODELS / f"xgb_cls_h{h}.json").exists():
             cls = xgb.XGBClassifier()
             cls.load_model(MODELS / f"xgb_cls_h{h}.json")
             p_cong = cls.predict_proba(X[meta["features"]])[:, 1]

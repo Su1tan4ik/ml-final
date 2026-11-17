@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 
 from common import ROOT
 from db import connect
+from features_v2 import GOOD_SLOT_SHARE, good_slots_sql
 
 WEB = Path(__file__).resolve().parent / "web"
 MODELS = Path(os.environ.get("MODELS_DIR", ROOT / "models_v2"))
@@ -31,7 +32,14 @@ LOCAL = "interval '5 hours'"  # Almaty = UTC+5 (same convention as features_v2)
 app = FastAPI(title="Almaty traffic V2")
 
 
-def _slot(cur, ts: datetime | None):
+def _slot(cur, ts: datetime | None, h: int = 0):
+    """Default slot: the latest observation (h=0) or, for a forecast (h>0), the latest
+    slot that already HAS a forecast. predict_v2 runs a few minutes after the scrape (longer
+    after a retrain), so the newest observed slot may not be forecast yet; if predict fails,
+    the map keeps the previous forecast instead of going empty."""
+    if ts is None and h > 0:
+        cur.execute("SELECT max(made_at) FROM forecast")
+        ts = cur.fetchone()[0]
     if ts is None:
         cur.execute("SELECT max(ts) FROM traffic_obs")
         ts = cur.fetchone()[0]
@@ -76,7 +84,7 @@ def horizons():
 @app.get("/api/traffic")
 def traffic(ts: datetime | None = None, h: int = Query(0, ge=0, le=12)):
     with connect() as c, c.cursor() as cur:
-        ts = _slot(cur, ts)
+        ts = _slot(cur, ts, h)
         if ts is None:
             return {"type": "FeatureCollection", "features": [], "ts": None}
         src = _scores_sql(ts, h)
@@ -140,7 +148,7 @@ def _route(cur, a, b, ts, mode, h=0):
 def route(a_lat: float, a_lon: float, b_lat: float, b_lon: float, ts: datetime | None = None,
           h: int = Query(0, ge=0, le=12)):
     with connect() as c, c.cursor() as cur:
-        ts = _slot(cur, ts)
+        ts = _slot(cur, ts, h)
         cur.execute(NEAREST_SQL, (a_lon, a_lat)); a = cur.fetchone()[0]
         cur.execute(NEAREST_SQL, (b_lon, b_lat)); b = cur.fetchone()[0]
         out = {"ts": ts.isoformat() if ts else None, "h": h,
@@ -184,7 +192,10 @@ def _json_file(name):
     return json.load(open(f)) if f.exists() else None
 
 
-WINDOW = f"o.ts > (SELECT max(ts) FROM traffic_obs) - interval '{STATS_DAYS} days'"
+# last STATS_DAYS days, only slots whose scrape fetched >= GOOD_SLOT_SHARE of tiles
+# (a partial run misses the outskirts and would make city-wide averages jump)
+WINDOW = (f"o.ts > (SELECT max(ts) FROM traffic_obs) - interval '{STATS_DAYS} days' "
+          f"AND o.ts IN ({good_slots_sql(GOOD_SLOT_SHARE)})")
 ROAD_CLASS = """CASE WHEN e.highway LIKE 'motorway%' OR e.highway LIKE 'trunk%' OR e.highway LIKE 'primary%' THEN 'магистрали'
                      WHEN e.highway LIKE 'secondary%' THEN 'районные'
                      WHEN e.highway LIKE 'tertiary%' OR e.highway = 'unclassified' THEN 'местные'

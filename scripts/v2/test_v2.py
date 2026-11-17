@@ -1,7 +1,8 @@
 """
 Offline checks for the V2 model code (no DB, no network):
   1. no leakage: changing any data AFTER the origin slot must not change features
-  2. end-to-end training on a synthetic city (rush hours + AR noise + missing values)
+  2. live forecasting (origin = last observed slot) builds the same features as training
+  3. end-to-end training on a synthetic city (rush hours + AR noise + missing values)
 
     cd scripts/v2 && ../../venv/bin/python test_v2.py
 """
@@ -13,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from features_v2 import FEATURES, Panel, _adjacency, _slot_hist, build_rows
+from features_v2 import FEATURES, SLOT_HIST_DAYS, Panel, _adjacency, _slot_hist, build_rows, extend
 from train_v2 import run
 
 
@@ -54,6 +55,25 @@ def test_no_leakage():
     print("ok: features use only data up to the origin slot (h=1,2,4)")
 
 
+def test_serving_matches_training():
+    """predict_v2 forecasts from the LAST observed slot, so the target lies beyond the
+    matrix; after extend() its features must equal those training saw for the same moment."""
+    p = synthetic_panel(n_units=60, days=10)
+    T = p.S.shape[1]
+    for h in (1, 2, 4):
+        t = T - 1 - h                                    # target still inside the full panel
+        ref = build_rows(p, h, [t], with_target=False, hist=_slot_hist(p.S, p.slots))
+        now = Panel(p.S[:, :t + 1], p.units, p.slots[:t + 1], p.weather.iloc[:t + 1], p.adj)
+        live = extend(now, 4)                            # what predict_v2 does
+        got = build_rows(live, h, [t], with_target=False, hist=_slot_hist(live.S, live.slots))
+        pd.testing.assert_frame_equal(ref[FEATURES].reset_index(drop=True), got[FEATURES].reset_index(drop=True))
+        assert got["slot_hist_mean"].notna().mean() > 0.5
+        # the window bounds slot history: at most 5 weekdays / 2 weekend days in 7 days
+        assert got["slot_hist_n"].max() <= 5
+    assert SLOT_HIST_DAYS == 7
+    print("ok: live-forecast features == training features (h=1,2,4)")
+
+
 def test_training():
     p = synthetic_panel()
     with tempfile.TemporaryDirectory() as d:
@@ -67,6 +87,7 @@ def test_training():
 
 if __name__ == "__main__" and "--db" not in __import__("sys").argv:
     test_no_leakage()
+    test_serving_matches_training()
     test_training()
 
 

@@ -38,7 +38,6 @@ from sklearn.metrics import (
     accuracy_score, f1_score, precision_score, recall_score,
     silhouette_score
 )
-from sklearn.inspection import permutation_importance
 
 try:
     import xgboost as xgb
@@ -359,12 +358,8 @@ def explain_models(models, X_test):
                 else:
                     raise RuntimeError('No RF model')
             except Exception as e2:
-                print(f'  SHAP failed completely: {e2}')
-                print('  Using permutation importance as fallback.')
-                from sklearn.inspection import permutation_importance
-                pi = permutation_importance(best, X_sample, X_sample.iloc[:, 0],
-                                            n_repeats=5, random_state=42, n_jobs=-1)
-                # Create pseudo-SHAP from permutation importance
+                # The tree feature importances above are still reported; plot 09 is skipped.
+                print(f'  SHAP failed completely: {e2} — skipping the SHAP plot')
                 shap_values = None
 
     return fi, shap_values, X_sample

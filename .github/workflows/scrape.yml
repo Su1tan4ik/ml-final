@@ -1,9 +1,10 @@
 name: Scrape Traffic Data
 
+# V1 collector, retired: V2 collects on the server (scripts/v2, collector container).
+# Its last data commit was 2026-06-12; the schedule is off so both collectors never hit
+# Yandex at the same time. Manual run still possible (Actions -> Run workflow).
 on:
-  schedule:
-    - cron: '*/30 * * * *'   # every 30 minutes
-  workflow_dispatch:           # allow manual trigger
+  workflow_dispatch:
 
 jobs:
   scrape:

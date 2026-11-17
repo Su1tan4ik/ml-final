@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -28,7 +30,7 @@ from sklearn.metrics import (f1_score, mean_absolute_error, mean_squared_error, 
 
 from common import ROOT
 from db import connect
-from features_v2 import FEATURES, FREE, _slot_hist, build_rows, load_matrix
+from features_v2 import FEATURES, FREE, GOOD_SLOT_SHARE, _slot_hist, build_rows, load_matrix
 
 OUT = ROOT / "models_v2"
 TEST_SHARE = 0.2
@@ -80,12 +82,29 @@ def main():
             raise SystemExit("no data in traffic_obs")
         if a.days:
             lo = max(lo, hi - timedelta(days=a.days))
-        panel = load_matrix(conn, lo, hi)
+        panel = load_matrix(conn, lo, hi, min_ok_share=GOOD_SLOT_SHARE)   # partial scrapes = missing
     run(panel, a.horizons, a.max_train_rows, OUT)
+
+
+def publish(stage, out):
+    """Move the freshly trained files from `stage` into `out` one by one with os.replace
+    (atomic per file; meta.json last) and drop model files of horizons not trained this
+    time. predict_v2 runs every 30 min in parallel with training and must never read a
+    half-written model or an old classifier left over from an earlier run."""
+    new = sorted(stage.iterdir(), key=lambda f: f.name == "meta.json")
+    for f in new:
+        os.replace(f, out / f.name)
+    names = {f.name for f in new}
+    for f in out.glob("xgb_*_h*.json"):
+        if f.name not in names:
+            f.unlink()
+    shutil.rmtree(stage, ignore_errors=True)
 
 
 def run(panel, horizons, max_train_rows=MAX_TRAIN_ROWS, out=OUT):
     t0 = time.time()
+    final, out = out, out / ".staging"           # write here, publish() at the end
+    shutil.rmtree(out, ignore_errors=True)
     lo, hi = panel.slots[0], panel.slots[-1]
     S = panel.S
     T = S.shape[1]
@@ -185,7 +204,8 @@ def run(panel, horizons, max_train_rows=MAX_TRAIN_ROWS, out=OUT):
                "horizons": [int(h) for h in report["horizons"]]},
               open(out / "meta.json", "w"), indent=2)
     json.dump(report, open(out / "report.json", "w"), indent=2, ensure_ascii=False)
-    print(f"saved to {out} in {time.time() - t0:.0f}s")
+    publish(out, final)
+    print(f"saved to {final} in {time.time() - t0:.0f}s")
     return report
 
 

@@ -1,8 +1,9 @@
 name: Feature Engineering + Retrain + Deploy
 
+# V1 retrain + HF/Render deploy. The daily schedule is off: V1 data stopped growing on
+# 2026-06-12, so every run retrained on the same data and force-pushed the same snapshot.
+# Run manually (Actions -> Run workflow) after changing train.py / data.csv.
 on:
-  schedule:
-    - cron: '0 2 * * *'   # daily at 02:00 UTC (08:00 Almaty)
   workflow_dispatch:
 
 jobs:
