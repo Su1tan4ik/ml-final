@@ -38,7 +38,7 @@ CONCURRENCY = 4
 JITTER_S = (0.05, 0.25)       # random pause before each request
 RETRIES = 3
 BLOCK_LIMIT = 25              # this many 403/429 in one run -> stop (probably blocked)
-MIN_OK_SHARE = 0.8
+MIN_OK_SHARE = 0.8            # = features_v2.GOOD_SLOT_SHARE (slots below it are skipped in training)
 OWM_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
@@ -62,12 +62,17 @@ async def fetch_one(session, sem, x, y, st: Stats):
                 async with session.get(url, headers=REQUEST_HEADERS,
                                        timeout=aiohttp.ClientTimeout(total=15)) as r:
                     if r.status == 200:
-                        st.ok += 1
-                        return Image.open(io.BytesIO(await r.read()))
-                    if r.status == 204:
+                        try:
+                            img = Image.open(io.BytesIO(await r.read()))
+                            img.load()           # decode now: a bad body must not crash scoring later
+                            st.ok += 1
+                            return img
+                        except OSError:          # HTML/captcha instead of PNG, or a truncated PNG
+                            st.blocked += 1      # retry; many of these -> circuit breaker stops the run
+                    elif r.status == 204:
                         st.empty += 1
                         return None
-                    if r.status in (403, 429):
+                    elif r.status in (403, 429):
                         st.blocked += 1
                     elif r.status < 500:
                         break

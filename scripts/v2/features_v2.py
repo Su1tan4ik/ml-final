@@ -21,6 +21,8 @@ import scipy.sparse as sp
 
 SLOT = timedelta(minutes=30)
 PER_DAY = 48
+SLOT_HIST_DAYS = 7  # window of slot_hist_mean; must fit in predict_v2.HISTORY_DAYS
+GOOD_SLOT_SHARE = 0.8  # a slot counts for training/statistics if >= this share of tiles was fetched
 FREE = 1.5
 ALMATY_UTC_OFFSET = 5  # hours; Almaty is UTC+5 all year
 
@@ -64,12 +66,23 @@ def _floor_slot(t: datetime) -> datetime:
     return t - timedelta(minutes=t.minute % 30)
 
 
-def load_matrix(conn, start: datetime, end: datetime) -> Panel:
-    """Load traffic_obs in [start, end] into the dense matrix + static info."""
+def good_slots_sql(min_ok_share: float) -> str:
+    """Subquery of slot times whose scrape fetched at least min_ok_share of the tiles.
+    A partial run (blocked / network errors) drops the tail of the tile list, i.e. the
+    outskirts, so its slot is biased; runs without tile counters (tests) are kept."""
+    return ("SELECT ts FROM scrape_run WHERE finished_at IS NOT NULL AND (coalesce(tiles_total, 0) = 0 "
+            f"OR coalesce(tiles_ok, 0) + coalesce(tiles_empty, 0) >= {float(min_ok_share)} * tiles_total)")
+
+
+def load_matrix(conn, start: datetime, end: datetime, min_ok_share: float | None = None) -> Panel:
+    """Load traffic_obs in [start, end] into the dense matrix + static info.
+    min_ok_share: skip slots whose scrape got fewer tiles (they stay all-NaN columns);
+    used for training / statistics, not for live forecasting."""
     start, end = _floor_slot(start), _floor_slot(end)
     slots = pd.date_range(start, end, freq="30min", tz="UTC")
+    good = "" if min_ok_share is None else f" AND ts IN ({good_slots_sql(min_ok_share)})"
     obs = _sql(
-        "SELECT ts, edge_id, dir, score FROM traffic_obs WHERE ts BETWEEN %(a)s AND %(b)s",
+        "SELECT ts, edge_id, dir, score FROM traffic_obs WHERE ts BETWEEN %(a)s AND %(b)s" + good,
         conn, params={"a": start, "b": end})
     units = (obs[["edge_id", "dir"]].drop_duplicates()
              .sort_values(["edge_id", "dir"]).reset_index(drop=True))
@@ -120,27 +133,51 @@ def _col(S, j):
     return out
 
 
-def _slot_hist(S: np.ndarray, slots: pd.DatetimeIndex):
+def _slot_hist(S: np.ndarray, slots: pd.DatetimeIndex, days: float | None = SLOT_HIST_DAYS):
     """
     Causal "typical value" per unit for each slot: mean of S over the same local
-    time-of-day and same weekday/weekend type on PREVIOUS days only.
+    time-of-day and same weekday/weekend type on PREVIOUS days only, limited to the
+    last `days` days (None = all history). A fixed window keeps the feature identical
+    in training (28 days of data) and in live forecasting (HISTORY_DAYS of data).
+    Assumes `slots` is a regular 30-min grid (as built by load_matrix / extend).
     Returns (mean, count) arrays shaped like S.
     """
     local = slots + pd.Timedelta(hours=ALMATY_UTC_OFFSET)
-    key = (local.hour * 2 + local.minute // 30) * 2 + (local.dayofweek >= 5)
+    key = np.asarray((local.hour * 2 + local.minute // 30) * 2 + (local.dayofweek >= 5))
+    win = None if days is None else int(round(days * PER_DAY))
     mean = np.full(S.shape, np.nan, np.float32)
     cnt = np.zeros(S.shape, np.float32)
+    zero = np.zeros((S.shape[0], 1))
     for k in np.unique(key):
         cols = np.flatnonzero(key == k)
         X = S[:, cols]
-        v = np.nan_to_num(X)
-        m = (~np.isnan(X)).astype(np.float32)
-        cs = np.cumsum(v, axis=1) - v       # sums over strictly earlier occurrences
-        cn = np.cumsum(m, axis=1) - m
+        cv = np.hstack([zero, np.cumsum(np.nan_to_num(X), axis=1, dtype=np.float64)])
+        cm = np.hstack([zero, np.cumsum(~np.isnan(X), axis=1, dtype=np.float64)])
+        cur = np.arange(len(cols))
+        # earlier occurrences inside the window: positions [lo, cur)
+        lo = np.zeros_like(cur) if win is None else np.searchsorted(cols, cols - win, side="left")
+        s, n = cv[:, cur] - cv[:, lo], cm[:, cur] - cm[:, lo]
         with np.errstate(invalid="ignore", divide="ignore"):
-            mean[:, cols] = np.where(cn > 0, cs / cn, np.nan)
-        cnt[:, cols] = cn
+            mean[:, cols] = np.where(n > 0, s / n, np.nan)
+        cnt[:, cols] = n
     return mean, cnt
+
+
+def naive_forecast(df: pd.DataFrame) -> np.ndarray:
+    """Baseline "traffic in h slots = traffic now" (now -> typical for the slot -> free).
+    Used as the yardstick in training and served instead of the model where it loses."""
+    return df["cur"].fillna(df["slot_hist_mean"]).fillna(FREE).values
+
+
+def extend(p: Panel, k: int) -> Panel:
+    """Append k empty future slots. Live forecasting builds features at the last observed
+    slot for targets up to k slots ahead; without the padding the target slot is outside
+    the matrix and slot_hist_mean / slot_hist_n come out empty (unlike in training)."""
+    if k <= 0:
+        return p
+    S = np.hstack([p.S, np.full((p.S.shape[0], k), np.nan, np.float32)])
+    slots = p.slots.append(pd.date_range(p.slots[-1] + SLOT, periods=k, freq="30min"))
+    return Panel(S, p.units, slots, p.weather, p.adj)
 
 
 def _nb(adj: sp.csr_matrix, x: np.ndarray):

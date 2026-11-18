@@ -382,7 +382,8 @@ def _build_features(seg, hour, day, temp, precip):
 def api_predict(lat:float=Query(43.265),lon:float=Query(76.945),
     hour:int=Query(18, ge=0, le=23),day:int=Query(4, ge=0, le=6),
     temp:float=Query(15),precip:float=Query(0, ge=0)):
-    dists = np.sqrt((segments['lat']-lat)**2+(segments['lon']-lon)**2)
+    # equirectangular distance: a degree of longitude is cos(lat) ≈ 0.73 of a degree of latitude here
+    dists = np.hypot(segments['lat'] - lat, (segments['lon'] - lon) * np.cos(np.radians(lat)))
     nearest = segments.loc[dists.idxmin()]
     if nearest['segment_id'] not in SEG_STATIC:
         return {"error": "No data"}

@@ -36,6 +36,8 @@ services:
       PG_USER: ${PG_USER:-traffic}
       PG_PASSWORD: ${PG_PASSWORD:-traffic_dev_only}
       OWM_API_KEY: ${OWM_API_KEY:-}
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}     # optional: Telegram alert when scraping fails (notify.py)
+      TG_CHAT_ID: ${TG_CHAT_ID:-}
     volumes: &appvol
       - ./data:/app/data
       - ./models_v2:/app/models_v2
@@ -47,6 +49,7 @@ services:
     image: almaty-traffic-v2
     container_name: traffic_collector
     restart: unless-stopped
+    init: true          # reaps the background training processes started by run_scrape.sh
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     depends_on: { db: { condition: service_healthy } }
     environment: *appenv

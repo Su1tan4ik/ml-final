@@ -31,7 +31,7 @@ import xgboost as xgb
 
 from common import ROOT
 from db import connect
-from features_v2 import FEATURES, _slot_hist, _sql, build_rows, load_matrix
+from features_v2 import FEATURES, GOOD_SLOT_SHARE, _slot_hist, _sql, build_rows, extend, load_matrix
 
 MODELS = ROOT / "models_v2"
 DAYS = 7
@@ -103,7 +103,7 @@ def main():
     with connect() as conn:
         hi = conn.execute("SELECT max(ts) FROM traffic_obs").fetchone()[0]
         lo = max(conn.execute("SELECT min(ts) FROM traffic_obs").fetchone()[0], hi - timedelta(days=DAYS))
-        p = load_matrix(conn, lo, hi)
+        p = load_matrix(conn, lo, hi, min_ok_share=GOOD_SLOT_SHARE)   # partial scrapes = missing
         names = _sql("SELECT edge_id, name, lanes, highway AS hw FROM road_edge WHERE edge_id = ANY(%(ids)s)",
                      conn, params={"ids": p.units["edge_id"].unique().tolist()})
     u = p.units[["edge_id", "dir", "length_m", "lat", "lon"]].merge(names, on="edge_id", how="left")
@@ -135,8 +135,9 @@ def main():
     mask = in_top & pd.MultiIndex.from_frame(u[["edge_id", "dir"]]).isin(act_idx)
     have = np.flatnonzero((~np.isnan(S)).any(0))
     origins = have
-    hist = _slot_hist(S, p.slots)
-    X = build_rows(p, h, origins.tolist(), with_target=False, hist=hist, unit_mask=mask)
+    pe = extend(p, h)                            # last origins: target slot inside the matrix
+    hist = _slot_hist(pe.S, pe.slots)
+    X = build_rows(pe, h, origins.tolist(), with_target=False, hist=hist, unit_mask=mask)
     contrib = pd.DataFrame(np.zeros((0, len(FEATURES))), columns=FEATURES)
     if len(X):
         X = X.assign(name=u["name"].values[X["unit"].values])
